@@ -3,8 +3,9 @@ blueprint:
   author: Thaidv
   description: >
     🖼️ Gửi ảnh tới Telegram dùng cho Voice Assistant  
-    ✅ Đã sửa lỗi `expected int @ data['target'] 
-    ✅ Đảm bảo gửi đúng nhóm Telegram theo Chat ID nhập.
+    ✅ Đã sửa lỗi cú pháp YAML ("mapping values are not allowed here")  
+    ✅ Đã sửa lỗi `expected int @ data['target']`  
+    ✅ Gửi đúng nhóm Telegram theo Chat ID nhập.
   domain: script
   homeassistant:
     min_version: 2024.10.0
@@ -18,7 +19,7 @@ max_exceeded: silent
 input:
   chat_id:
     name: Chat ID
-    description: Nhập chat_id nhóm hoặc người nhận (VD: -1002936213456)
+    description: "Nhập chat_id nhóm hoặc người nhận (VD: -1002936213456)"
     selector:
       text:
         multiline: false
@@ -26,8 +27,8 @@ input:
 
   caption:
     name: Caption
-    description: Mô tả/ghi chú cho ảnh (tùy chọn)
-    default: ''
+    description: "Mô tả/ghi chú cho ảnh (tùy chọn)"
+    default: ""
     selector:
       text:
         multiline: true
@@ -47,8 +48,8 @@ input:
 
   message:
     name: Message
-    description: Nội dung tin nhắn đi kèm (tuỳ chọn)
-    default: ''
+    description: "Nội dung tin nhắn đi kèm (tuỳ chọn)"
+    default: ""
     selector:
       text:
         multiline: true
@@ -84,11 +85,11 @@ sequence:
               response:
                 status: success
                 message: "✅ Gửi ảnh thành công!"
-      - default:
-          - variables:
-              response:
-                status: failed
-                message: "❌ Gửi ảnh thất bại!"
+    default:
+      - variables:
+          response:
+            status: failed
+            message: "❌ Gửi ảnh thất bại!"
 
   - stop: ""
     response_variable: response
