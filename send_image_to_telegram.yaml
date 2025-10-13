@@ -25,7 +25,7 @@ blueprint:
       input:
         chat_id:
           name: Chat ID
-          description: The chat ID to send the image to.
+          description: -1002936213456
           selector:
             text:
               multiline: false
