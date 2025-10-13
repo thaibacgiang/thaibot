@@ -1,19 +1,9 @@
 blueprint:
   name: Voice - Send Image to Telegram
   author: Thaidv
-  description: '# Tool for sending images to Telegram used for Voice Assistant
-
-    ## Blueprint Setup
-
-    ### Required * The Telegram Bot integration must be installed and properly configured.
-
-    ### Optional * Adjust the prompts for each field used in the script. The descriptions
-    guide the LLM to provide the correct input.
-
-    ### Note * Provide a concise and precise description for the script. This will
-    be utilized by the LLM to understand it should use this script for sending images
-    to Telegram. * Make sure to expose the script to Assist after the script has been
-    saved. * Do not alter the default script name.'
+  description: >
+    # Tool for sending images to Telegram used for Voice Assistant  
+    This version fixes the chat_id → target issue so it sends to the correct chat.
   domain: script
   homeassistant:
     min_version: 2024.10.0
@@ -21,18 +11,18 @@ blueprint:
     telegram_settings:
       name: Settings for Telegram
       icon: mdi:telegram
-      description: You can use these settings to configure Telegram for sending the image.
+      description: Configure Telegram sending options.
       input:
         chat_id:
           name: Chat ID
-          description: The thread to send the image to.
+          description: The thread or group ID to send the image to.
           selector:
             text:
               multiline: false
               multiple: false
         caption:
           name: Caption
-          description: The caption for the image (optional).
+          description: Optional text caption for the image.
           selector:
             text:
               multiline: true
@@ -41,38 +31,17 @@ blueprint:
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
-      description: You can use these settings to finetune the prompts for your specific
-        LLM (model).
+      description: Finetune prompts for your specific model.
       collapsed: true
       input:
         image_path_prompt:
           name: Image Path Prompt
-          description: The prompt which will be used for the LLM to provide the image
-            URL/path.
-          selector:
-            text:
-              multiline: true
-              multiple: false
-          default: 'This argument is mandatory and must always be provided. Select
-            the correct camera and provide the full URL for the image you want to
-            send. Available cameras and their URLs: - Kho: http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho
-            - Cổng: http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong - Sân:
-            http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan - Phòng Khách:
-            http://localhost:1984/api/frame.jpeg?src=camera.pkhach Only enter the
-            URL that matches the camera you want to send. Example: If you want to
-            send an image from ''san'', enter http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan'
+          default: >
+            This argument is mandatory. Provide the full URL for the image to send.
         message_prompt:
           name: Message Prompt
-          description: The prompt which will be used for the LLM to provide the message
-            content.
-          selector:
-            text:
-              multiline: true
-              multiple: false
-          default: 'This argument is optional. Enter the camera name (kho, cong, san,
-            phong khach) to indicate which camera the image is from. You may also
-            provide a short message to send along with the image. Example: "Image
-            from Camera Sân" or "Camera Sân snapshot".'
+          default: >
+            Optional. Provide a short message or camera name.
   source_url: https://github.com/thaibacgiang/thaibot/blob/main/send_image_to_telegram.yaml
 mode: queued
 max: 30
@@ -92,29 +61,29 @@ fields:
     selector:
       text:
 sequence:
-- variables:
-    image_path: '{{ image_path | default('''') | trim }}'
-    message: '{{ message | default('''') | trim }}'
-    final_caption: '{{ message if message else (caption | default('''')) }}'
-- action: telegram_bot.send_photo
-  data:
-    chat_id: !input chat_id
-    url: '{{ image_path }}'
-    caption: '{{ final_caption }}'
-  response_variable: telegram_result
-- choose:
-  - conditions:
-    - condition: template
-      value_template: '{{ telegram_result is defined and telegram_result != false }}'
-    sequence:
-    - variables:
-        response:
-          data:
-            status: success
-            message: Gửi ảnh thành công
-  default:
   - variables:
-      response:
-        error: 'Gửi ảnh thất bại'
-- stop: ''
-  response_variable: response
+      image_path: "{{ image_path | default('') | trim }}"
+      message: "{{ message | default('') | trim }}"
+      final_caption: "{{ message if message else (caption | default('')) }}"
+  - action: telegram_bot.send_photo
+    data:
+      target: "{{ chat_id | int(default=0) if chat_id is string else chat_id }}"  # ✅ Sửa chat_id -> target
+      url: "{{ image_path }}"
+      caption: "{{ final_caption }}"
+    response_variable: telegram_result
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ telegram_result is defined and telegram_result != false }}"
+        sequence:
+          - variables:
+              response:
+                data:
+                  status: success
+                  message: "✅ Gửi ảnh thành công!"
+    default:
+      - variables:
+          response:
+            error: "❌ Gửi ảnh thất bại!"
+  - stop: ""
+    response_variable: response
