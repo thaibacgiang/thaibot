@@ -73,7 +73,7 @@ blueprint:
             phong khach) to indicate which camera the image is from. You may also
             provide a short message to send along with the image. Example: "Image
             from Camera Sân" or "Camera Sân snapshot".'
-  source_url: https://raw.githubusercontent.com/smarthomeblack/home-assistant/refs/heads/main/sendimagetotelegram/send_image_to_telegram.yaml
+  source_url: https://github.com/thaibacgiang/thaibot/blob/main/send_image_to_telegram.yaml
 mode: queued
 max: 30
 max_exceeded: silent
