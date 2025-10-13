@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Send Image to Telegram
-  author: smarthomeblack
+  author: Thaidv
   description: '# Tool for sending images to Telegram used for Voice Assistant
 
     ## Blueprint Setup
