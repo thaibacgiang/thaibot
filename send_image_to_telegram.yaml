@@ -3,7 +3,7 @@ blueprint:
   author: Thaidv
   description: >
     🖼️ Gửi ảnh tới Telegram dùng cho Voice Assistant  
-    ✅ Đã sửa lỗi cú pháp YAML ("mapping values are not allowed here")  
+    ✅ Đã sửa lỗi cú pháp YAML ("mapping values are not allowed here")  r
     ✅ Đã sửa lỗi `expected int @ data['target'] 
     ✅ Gửi đúng nhóm Telegram theo Chat ID nhập.
   domain: script
