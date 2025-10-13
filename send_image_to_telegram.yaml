@@ -3,102 +3,78 @@ blueprint:
   author: Thaidv
   description: >
     🖼️ Gửi ảnh tới Telegram dùng cho Voice Assistant  
-    ✅ Phiên bản đã sửa lỗi `expected int @ data['target']  
+    ✅ Đã sửa lỗi `expected int @ data['target']`  
     ✅ Đảm bảo gửi đúng nhóm Telegram theo Chat ID nhập.
   domain: script
   homeassistant:
     min_version: 2024.10.0
 
-  input:
-    telegram_settings:
-      name: Cấu hình Telegram
-      icon: mdi:telegram
-      description: Cấu hình gửi ảnh Telegram
-      input:
-        chat_id:
-          name: Chat ID
-          description: Nhập chat_id nhóm hoặc người nhận (VD: -1002936213456)
-          selector:
-            text:
-              multiline: false
-              multiple: false
-        caption:
-          name: Caption
-          description: Mô tả/ghi chú cho ảnh (tùy chọn)
-          selector:
-            text:
-              multiline: true
-              multiple: false
-          default: ''
-
-    prompt_settings:
-      name: Prompt settings cho AI (nếu dùng LLM)
-      icon: mdi:robot
-      description: Cấu hình nhắc cho mô hình AI (nếu cần)
-      collapsed: true
-      input:
-        image_path_prompt:
-          name: Image Path Prompt
-          description: Hướng dẫn AI nhập đúng đường dẫn ảnh
-          selector:
-            text:
-              multiline: true
-              multiple: false
-          default: >
-            Đây là tham số bắt buộc. Cung cấp URL đầy đủ cho ảnh cần gửi.  
-            Ví dụ:
-              - Kho: http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho
-              - Cổng: http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong
-              - Sân: http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan
-              - Phòng Khách: http://localhost:1984/api/frame.jpeg?src=camera.pkhach
-
-        message_prompt:
-          name: Message Prompt
-          description: Hướng dẫn AI nhập nội dung tin nhắn
-          selector:
-            text:
-              multiline: true
-              multiple: false
-          default: >
-            Tuỳ chọn. Có thể nhập tên camera hoặc nội dung mô tả ngắn cho ảnh.
-
   source_url: https://github.com/thaibacgiang/thaibot/blob/main/send_image_to_telegram.yaml
+
 mode: queued
 max: 30
 max_exceeded: silent
 
+input:
+  chat_id:
+    name: Chat ID
+    description: Nhập chat_id nhóm hoặc người nhận (VD: -1002936213456)
+    selector:
+      text:
+        multiline: false
+        multiple: false
+
+  caption:
+    name: Caption
+    description: Mô tả/ghi chú cho ảnh (tùy chọn)
+    default: ''
+    selector:
+      text:
+        multiline: true
+        multiple: false
+
+  image_path:
+    name: Image Path
+    description: >
+      Đây là URL ảnh cần gửi.  
+      Ví dụ:
+        - http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho  
+        - http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong
+    selector:
+      text:
+        multiline: false
+        multiple: false
+
+  message:
+    name: Message
+    description: Nội dung tin nhắn đi kèm (tuỳ chọn)
+    default: ''
+    selector:
+      text:
+        multiline: true
+        multiple: false
+
 variables:
   version: 20251014
 
-fields:
-  image_path:
-    name: Image Path
-    description: !input image_path_prompt
-    selector:
-      text:
-    required: true
-  message:
-    name: Message
-    description: !input message_prompt
-    selector:
-      text:
-
 sequence:
-  # Biến đầu vào
+  # Làm sạch dữ liệu đầu vào
   - variables:
-      image_path: "{{ image_path | default('') | trim }}"
-      message: "{{ message | default('') | trim }}"
-      final_caption: "{{ message if message else (caption | default('')) }}"
+      _chat_id: "{{ chat_id | int }}"
+      _image_path: "{{ image_path | trim }}"
+      _caption: "{{ caption | default('') | trim }}"
+      _message: "{{ message | default('') | trim }}"
+      _final_caption: "{{ _message if _message else _caption }}"
 
-  # Gửi ảnh qua Telegram
+  # Gửi ảnh đến Telegram
   - action: telegram_bot.send_photo
     data:
-      target: "{{ chat_id | int }}"        # ✅ Ép kiểu integer, sửa lỗi expected int
-      url: "{{ image_path }}"
-      caption: "{{ final_caption }}"
+      target: "{{ _chat_id }}"
+      url: "{{ _image_path }}"
+      caption: "{{ _final_caption }}"
     response_variable: telegram_result
 
-  # Kiểm tra phản hồi từ Telegram
+  # Kiểm tra phản hồi Telegram
   - choose:
       - conditions:
           - condition: template
@@ -106,13 +82,13 @@ sequence:
         sequence:
           - variables:
               response:
-                data:
-                  status: success
-                  message: "✅ Gửi ảnh thành công!"
-    default:
-      - variables:
-          response:
-            error: "❌ Gửi ảnh thất bại!"
+                status: success
+                message: "✅ Gửi ảnh thành công!"
+      - default:
+          - variables:
+              response:
+                status: failed
+                message: "❌ Gửi ảnh thất bại!"
 
   - stop: ""
     response_variable: response
