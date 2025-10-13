@@ -96,7 +96,7 @@ sequence:
     image_path: '{{ image_path | default('''') | trim }}'
     message: '{{ message | default('''') | trim }}'
     final_caption: '{{ message if message else (caption | default('''')) }}'
-- action: telegram_bot.send_photo
+- action: notify.bot_telegram_pn
   data:
     chat_id: !input chat_id
     url: '{{ image_path }}'
