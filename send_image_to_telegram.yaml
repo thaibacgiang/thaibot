@@ -3,7 +3,7 @@ blueprint:
   author: Thaidv
   description: >
     🖼️ Gửi ảnh tới Telegram dùng cho Voice Assistant  
-    ✅ Đã sửa lỗi `expected int @ data['target']`  
+    ✅ Đã sửa lỗi `expected int @ data['target'] 
     ✅ Đảm bảo gửi đúng nhóm Telegram theo Chat ID nhập.
   domain: script
   homeassistant:
