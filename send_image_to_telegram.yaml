@@ -6,14 +6,26 @@ blueprint:
   homeassistant:
     min_version: 2024.10.0
   input:
-    caption:
-      name: Caption
-      description: The caption for the image (optional).
-      selector:
-        text:
-          multiline: true
-          multiple: false
-      default: ''
+    telegram_settings:
+      name: Settings for Telegram
+      icon: mdi:telegram
+      description: You can use these settings to configure Telegram for sending the image.
+      input:
+        chat_id:
+          name: Chat ID
+          description: The thread to send the image to.
+          selector:
+            text:
+              multiline: false
+              multiple: false
+        caption:
+          name: Caption
+          description: The caption for the image (optional).
+          selector:
+            text:
+              multiline: true
+              multiple: false
+          default: ''
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -60,21 +72,28 @@ sequence:
     message: '{{ message | default('''') | trim }}'
     final_caption: '{{ message if message else (caption | default('''')) }}'
     
-# Gửi ảnh qua notify service - KHÔNG dùng response_variable
-- service: notify.bot_telegram_pn
+# THAY THẾ telegram_bot.send_photo BẰNG pyscript.send_telegram_photo
+- service: pyscript.send_telegram_photo
   data:
-    message: "{{ final_caption }}"
-    data:
-      photo:
-        url: "{{ image_path }}"
-        caption: "{{ final_caption }}"
+    chat_id: !input chat_id
+    url: '{{ image_path }}'
+    caption: '{{ final_caption }}'
+  response_variable: pyscript_result
 
-# Luôn trả về thành công vì notify service không có response
-- variables:
-    response:
-      data:
-        status: success
-        message: Gửi ảnh thành công
+- choose:
+  - conditions:
+    - condition: template
+      value_template: '{{ pyscript_result is defined and pyscript_result.success == true }}'
+    sequence:
+    - variables:
+        response:
+          data:
+            status: success
+            message: Gửi ảnh thành công
+  default:
+  - variables:
+      response:
+        error: '{{ pyscript_result.error | default("Gửi ảnh thất bại") }}'
 
 - stop: ''
   response_variable: response
