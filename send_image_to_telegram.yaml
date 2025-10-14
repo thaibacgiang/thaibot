@@ -76,7 +76,7 @@ sequence:
 - service: pyscript.send_telegram_photo
   data:
     chat_id: !input chat_id
-    url: '{{ image_path }}'
+    file_path: '{{ image_path }}'
     caption: '{{ final_caption }}'
   response_variable: pyscript_result
 
