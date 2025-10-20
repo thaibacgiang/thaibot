@@ -8,7 +8,7 @@ blueprint:
 
     ### Required
 
-    * An AI Task entity must be created and configured in the System - General settings.
+    * Google Generative AI integration must be installed and configured.
 
     ### Optional
 
@@ -25,20 +25,20 @@ blueprint:
   homeassistant:
     min_version: 2025.8.0
   input:
-    ai_task_settings:
-      name: Settings for AI Task
-      icon: mdi:robot-outline
-      description: These settings allow you to set up the AI Task responsible for handling the analyzer task.
+    google_ai_settings:
+      name: Settings for Google Generative AI
+      icon: mdi:google
+      description: These settings allow you to set up the Google Generative AI integration.
       collapsed: true
       input:
-        ai_task_entity:
-          name: AI Task Entity
-          description: If left empty, the system will use the default settings under System - General.
+        google_ai_entity:
+          name: Google Generative AI Entity
+          description: Select the Google Generative AI entity to use for analysis.
           selector:
             entity:
-              filter:
-                domain: ai_task
-          default:
+              domain: conversation
+              integration: google_generative_ai
+          required: true
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -57,25 +57,22 @@ blueprint:
             The tool can analyze content and extract any type of information from an image, video, audio, or document, including text, numbers, objects, speech, and visual features.
 
             Always clearly specify exactly what data should be extracted.
-        image_path_prompt:
-          name: Image Path Prompt
-          description: The prompt which will be used for the LLM to provide the image URL/path.
-          selector:
-            text:
-              multiline: true
-          default: >-
-            This argument is mandatory and must always be provided. Select the correct camera and provide the full URL for the image you want to analyze. Available cameras and their URLs: - Kho: http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho - Cổng: http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong - Sân: http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan - Phòng Khách: http://localhost:1984/api/frame.jpeg?src=camera.pkhach Only enter the URL that matches the camera you want to analyze. Example: If you want to analyze an image from 'san', enter http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan
-        mime_type_prompt:
-          name: MIME Type Prompt
-          description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
+        camera_selection_prompt:
+          name: Camera Selection Prompt
+          description: The prompt which will be used for the LLM to select the camera for analysis.
           selector:
             text:
               multiline: true
           default: >-
             This argument is mandatory and must always be provided.
 
-            Always specify the MIME type of the media.
-            Choose a value that matches the file contents (for example image/jpeg, video/mp4, audio/mp3, text/plain, or application/pdf).
+            Select the camera you want to analyze from the following options:
+            - kho: Camera Kho
+            - cong: Camera Cổng  
+            - san: Camera Sân
+            - pkhach: Camera Phòng Khách
+
+            Only enter the camera name (kho, cong, san, or pkhach).
 mode: parallel
 max_exceeded: silent
 variables:
@@ -88,24 +85,37 @@ fields:
       text:
         multiline: true
     required: true
-  image_path:
-    name: Image Path
-    description: !input image_path_prompt
+  camera_name:
+    name: Camera Name
+    description: !input camera_selection_prompt
     selector:
-      text:
-    required: true
-  mime_type:
-    name: MIME Type
-    description: !input mime_type_prompt
-    selector:
-      text:
+      select:
+        options:
+          - label: Camera Kho
+            value: kho
+          - label: Camera Cổng
+            value: cong
+          - label: Camera Sân
+            value: san
+          - label: Camera Phòng Khách
+            value: pkhach
     required: true
 sequence:
   - variables:
-      ai_task_entity: !input ai_task_entity
+      google_ai_entity: !input google_ai_entity
       instructions: "{{ instructions | default('') | trim }}"
-      image_path: "{{ image_path | default('') | trim }}"
-      mime_type: "{{ mime_type | default('') | trim }}"
+      camera_name: "{{ camera_name | default('') | trim }}"
+      
+      # Map camera names to image URLs
+      camera_url_map:
+        kho: "http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho"
+        cong: "http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong"
+        san: "http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan"
+        pkhach: "http://localhost:1984/api/frame.jpeg?src=camera.pkhach"
+      
+      selected_camera_url: "{{ camera_url_map[camera_name] }}"
+      full_prompt: "{{ 'Analyze this image and ' ~ instructions }}"
+      
   - if:
       - alias: Check if variables were set correctly
         condition: template
@@ -121,57 +131,44 @@ sequence:
           Unable to extract data because instructions is missing or incorrect.
         response_variable: response
   - if:
-      - alias: Check if variables were set correctly
+      - alias: Check if camera name is valid
         condition: template
-        value_template: "{{ (image_path | length == 0) or (not image_path.startswith('http://')) }}"
+        value_template: "{{ camera_name not in ['kho', 'cong', 'san', 'pkhach'] }}"
     then:
       - alias: Set variable for error message
         variables:
           response:
             error: >-
-              Unable to extract data because image path is missing or invalid. Provide a valid HTTP URL for the camera image.
+              Unable to extract data because camera selection is invalid. Please select kho, cong, san, or pkhach.
       - alias: Stop the script
         stop: >-
-          Unable to extract data because image path is missing or invalid.
+          Unable to extract data because camera selection is invalid.
         response_variable: response
-  - if:
-      - alias: Check if variables were set correctly
-        condition: template
-        value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
-    then:
-      - alias: Set variable for error message
-        variables:
-          response:
-            error: >-
-              Unable to extract data because MIME type is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
-          Unable to extract data because MIME type is missing or incorrect.
-        response_variable: response
-  - variables:
-      attachments:
-        media_content_id: "{{ image_path }}"
-        media_content_type: "{{ mime_type }}"
+
+  # Use Google Generative AI to analyze the image directly from URL
+  - action: conversation.process
+    data:
+      agent_id: "{{ google_ai_entity }}"
+      text: "{{ full_prompt }}"
+      attachment:
+        url: "{{ selected_camera_url }}"
+    response_variable: google_ai_result
+
   - if:
       - condition: template
-        value_template: "{{ not ai_task_entity }}"
+        value_template: "{{ google_ai_result is not defined or google_ai_result.speech is not defined }}"
     then:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media or document file
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-        response_variable: result
-    else:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media or document file
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-          entity_id: "{{ ai_task_entity }}"
-        response_variable: result
+      - variables:
+          response:
+            error: "Failed to analyze image from camera {{ camera_name }}"
+      - stop: "Failed to analyze camera image"
+        response_variable: response
+
   - variables:
       response:
-        data: "{{ result.data }}"
+        data: "{{ google_ai_result.speech }}"
+        camera_analyzed: "{{ camera_name }}"
+        analysis_success: true
+
   - stop: ""
     response_variable: response
