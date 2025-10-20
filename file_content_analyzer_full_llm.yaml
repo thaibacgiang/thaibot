@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv
+  author: Thaidv1
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -38,7 +38,6 @@ blueprint:
             entity:
               domain: conversation
               integration: google_generative_ai
-          required: true
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
