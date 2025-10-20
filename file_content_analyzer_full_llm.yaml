@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv1
+  author: luuquangvu
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -66,10 +66,10 @@ blueprint:
             This argument is mandatory and must always be provided.
 
             Select the camera you want to analyze from the following options:
-            - kho: Camera Kho
-            - cong: Camera Cổng  
-            - san: Camera Sân
-            - pkhach: Camera Phòng Khách
+            - kho: Camera Kho (entity: camera.ezvizkho)
+            - cong: Camera Cổng (entity: camera.ezvizcong)  
+            - san: Camera Sân (entity: camera.ezvizsan)
+            - pkhach: Camera Phòng Khách (entity: camera.pkhach)
 
             Only enter the camera name (kho, cong, san, or pkhach).
 mode: parallel
@@ -90,13 +90,13 @@ fields:
     selector:
       select:
         options:
-          - label: Camera Kho
+          - label: Camera Kho (camera.ezvizkho)
             value: kho
-          - label: Camera Cổng
+          - label: Camera Cổng (camera.ezvizcong)
             value: cong
-          - label: Camera Sân
+          - label: Camera Sân (camera.ezvizsan)
             value: san
-          - label: Camera Phòng Khách
+          - label: Camera Phòng Khách (camera.pkhach)
             value: pkhach
     required: true
 sequence:
@@ -105,7 +105,10 @@ sequence:
       instructions: "{{ instructions | default('') | trim }}"
       camera_name: "{{ camera_name | default('') | trim }}"
       
-      # Map camera names to image URLs
+      # Lấy thông tin entity aliases từ sensor
+      entity_aliases: "{{ state_attr('sensor.assist_entity_ids_and_aliases', 'entities') }}"
+      
+      # Map camera names to image URLs với entity IDs rõ ràng
       camera_url_map:
         kho: "http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho"
         cong: "http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong"
@@ -113,7 +116,19 @@ sequence:
         pkhach: "http://localhost:1984/api/frame.jpeg?src=camera.pkhach"
       
       selected_camera_url: "{{ camera_url_map[camera_name] }}"
-      full_prompt: "{{ 'Analyze this image and ' ~ instructions }}"
+      
+      # Tạo prompt với context về entities và aliases
+      enhanced_prompt: >-
+        Analyze this image from camera {{ camera_name }} (entity: {{ 
+          'camera.ezvizkho' if camera_name == 'kho' else
+          'camera.ezvizcong' if camera_name == 'cong' else
+          'camera.ezvizsan' if camera_name == 'san' else
+          'camera.pkhach'
+        }}).
+        
+        Available entities and aliases in the system: {{ entity_aliases }}
+        
+        Instructions: {{ instructions }}
       
   - if:
       - alias: Check if variables were set correctly
@@ -144,11 +159,21 @@ sequence:
           Unable to extract data because camera selection is invalid.
         response_variable: response
 
+  # Kiểm tra nếu sensor entity aliases tồn tại
+  - if:
+      - condition: template
+        value_template: "{{ not entity_aliases }}"
+    then:
+      - variables:
+          enhanced_prompt: >-
+            Analyze this image from camera {{ camera_name }}.
+            Instructions: {{ instructions }}
+
   # Use Google Generative AI to analyze the image directly from URL
   - action: conversation.process
     data:
       agent_id: "{{ google_ai_entity }}"
-      text: "{{ full_prompt }}"
+      text: "{{ enhanced_prompt }}"
       attachment:
         url: "{{ selected_camera_url }}"
     response_variable: google_ai_result
@@ -167,6 +192,12 @@ sequence:
       response:
         data: "{{ google_ai_result.speech }}"
         camera_analyzed: "{{ camera_name }}"
+        camera_entity: "{{
+          'camera.ezvizkho' if camera_name == 'kho' else
+          'camera.ezvizcong' if camera_name == 'cong' else
+          'camera.ezvizsan' if camera_name == 'san' else
+          'camera.pkhach'
+        }}"
         analysis_success: true
 
   - stop: ""
