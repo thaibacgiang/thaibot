@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: luuquangvu
+  author: thaidv
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -29,7 +29,6 @@ blueprint:
       name: Settings for Google Generative AI
       icon: mdi:google
       description: These settings allow you to set up the Google Generative AI integration.
-      collapsed: true
       input:
         google_ai_entity:
           name: Google Generative AI Entity
@@ -77,6 +76,14 @@ max_exceeded: silent
 variables:
   version: 20251019
 fields:
+  google_ai_entity:
+    name: Google AI Entity
+    description: Select the Google Generative AI entity to use for image analysis.
+    selector:
+      entity:
+        domain: conversation
+        integration: google_generative_ai
+    required: true
   instructions:
     name: Instructions
     description: !input instructions_prompt
@@ -101,7 +108,7 @@ fields:
     required: true
 sequence:
   - variables:
-      google_ai_entity: !input google_ai_entity
+      google_ai_entity: "{{ google_ai_entity }}"
       instructions: "{{ instructions | default('') | trim }}"
       camera_name: "{{ camera_name | default('') | trim }}"
       
@@ -126,10 +133,27 @@ sequence:
           'camera.pkhach'
         }}).
         
+        {% if entity_aliases %}
         Available entities and aliases in the system: {{ entity_aliases }}
+        {% endif %}
         
         Instructions: {{ instructions }}
       
+  - if:
+      - alias: Check if Google AI entity is selected
+        condition: template
+        value_template: "{{ not google_ai_entity }}"
+    then:
+      - alias: Set variable for error message
+        variables:
+          response:
+            error: >-
+              Google AI entity is required. Please select a Google Generative AI entity.
+      - alias: Stop the script
+        stop: >-
+              Google AI entity is required. Please select a Google Generative AI entity.
+        response_variable: response
+
   - if:
       - alias: Check if variables were set correctly
         condition: template
@@ -144,6 +168,7 @@ sequence:
         stop: >-
           Unable to extract data because instructions is missing or incorrect.
         response_variable: response
+
   - if:
       - alias: Check if camera name is valid
         condition: template
@@ -158,16 +183,6 @@ sequence:
         stop: >-
           Unable to extract data because camera selection is invalid.
         response_variable: response
-
-  # Kiểm tra nếu sensor entity aliases tồn tại
-  - if:
-      - condition: template
-        value_template: "{{ not entity_aliases }}"
-    then:
-      - variables:
-          enhanced_prompt: >-
-            Analyze this image from camera {{ camera_name }}.
-            Instructions: {{ instructions }}
 
   # Use Google Generative AI to analyze the image directly from URL
   - action: conversation.process
