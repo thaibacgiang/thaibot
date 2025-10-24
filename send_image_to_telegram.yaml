@@ -1,6 +1,6 @@
 blueprint:
-  name: Voice - Send Image to Telegram (Fix)
-  author: Thaidv
+  name: Voice - Send Image to Telegram
+  author: Thaidv1
   description: >
     📸 Gửi ảnh từ Camera đến Telegram — phiên bản sửa lỗi hoàn toàn.
     - Hỗ trợ lọc URL Markdown.
