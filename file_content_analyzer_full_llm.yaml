@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv
+  author: thai
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -10,6 +10,34 @@ blueprint:
 
     * Google Generative AI integration must be installed and configured.
 
+    * A template sensor stores all information about entity aliases needs to be configured in `config/configuration.yaml`.
+
+    ```
+
+    #File configuration.yaml
+
+    shell_command:
+      get_entity_alias: jq '[.data.entities[] | select(.options.conversation.should_expose == true and (.aliases | length > 0)) | {entity_id, aliases}]' ./.storage/core.entity_registry
+    template:
+      - trigger:
+          - platform: homeassistant
+            event: start
+          - trigger: event
+            event_type: event_template_reloaded
+        action:
+          - action: shell_command.get_entity_alias
+            response_variable: response
+        sensor:
+          - name: "Assist: Entity IDs and Aliases"
+            unique_id: entity_ids_and_aliases
+            icon: mdi:format-list-bulleted
+            device_class: timestamp
+            state: "{{ now().isoformat() }}"
+            attributes:
+              entities: "{{ response.stdout }}"
+
+    ```
+
     ### Optional
 
     * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
@@ -18,6 +46,8 @@ blueprint:
 
     * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to extract data from a media or document file.
 
+    * Expose any camera entities you want to use through Assist, and Assist will be able to "see" whenever you ask.
+
     * Make sure to expose the script to Assist after the script has been saved.
 
     * Do not alter the default script name.
@@ -25,11 +55,22 @@ blueprint:
   homeassistant:
     min_version: 2025.8.0
   input:
+    entity_aliases_settings:
+      name: Settings for Entity Aliases
+      icon: mdi:format-list-bulleted
+      description: You can use these settings to configure a template sensor that stores all information about entity aliases.
+      input:
+        entity_aliases:
+          name: Entity Aliases
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+                  integration: template
     google_ai_settings:
       name: Settings for Google Generative AI
       icon: mdi:google
       description: These settings allow you to set up the Google Generative AI responsible for handling the analyzer task.
-      collapsed: true
       input:
         google_ai_entity:
           name: Google AI Entity
@@ -38,7 +79,6 @@ blueprint:
             entity:
               domain: conversation
               integration: google_generative_ai
-          default:
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -57,6 +97,18 @@ blueprint:
             The tool can analyze content and extract any type of information from an image, video, audio, or document, including text, numbers, objects, speech, and visual features.
 
             Always clearly specify exactly what data should be extracted.
+        media_source_prompt:
+          name: Media Source Prompt
+          description: The prompt which will be used for the LLM can provide the media source for the query.
+          selector:
+            text:
+              multiline: true
+          default: >-
+            This argument is mandatory and must always be provided.
+
+            Always specify the media source.
+
+            It must be one of the following values: 'camera' for a camera entity, or 'path' for other types.
         media_path_prompt:
           name: Media Path Prompt
           description: The prompt which will be used for the LLM can provide the media path for the query.
@@ -66,13 +118,7 @@ blueprint:
           default: >-
             This argument is mandatory and must always be provided.
 
-            Select the camera you want to analyze:
-            - kho: http://localhost:1984/api/frame.jpeg?src=camera.ezvizkho
-            - cong: http://localhost:1984/api/frame.jpeg?src=camera.ezvizcong
-            - san: http://localhost:1984/api/frame.jpeg?src=camera.ezvizsan
-            - pkhach: http://localhost:1984/api/frame.jpeg?src=camera.pkhach
-
-            Enter the full URL of the camera you want to analyze.
+            Always specify either the relative path of the media or the camera entity name.
         mime_type_prompt:
           name: MIME Type Prompt
           description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
@@ -83,11 +129,12 @@ blueprint:
             This argument is mandatory and must always be provided.
 
             Always specify the MIME type of the media.
-            Choose a value that matches the file contents (for example image/jpeg, video/mp4, audio/mp3, text/plain, or application/pdf).
+
+            If the media source is 'camera', the MIME type must be set to 'application/vnd.apple.mpegurl'.
 mode: parallel
 max_exceeded: silent
 variables:
-  version: 20251019
+  version: 20250923
 fields:
   instructions:
     name: Instructions
@@ -95,6 +142,15 @@ fields:
     selector:
       text:
         multiline: true
+    required: true
+  media_source:
+    name: Media Source
+    description: !input media_source_prompt
+    selector:
+      select:
+        options:
+          - camera
+          - path
     required: true
   media_path:
     name: Media Path
@@ -110,8 +166,10 @@ fields:
     required: true
 sequence:
   - variables:
+      entity_aliases: !input entity_aliases
       google_ai_entity: !input google_ai_entity
       instructions: "{{ instructions | default('') | trim }}"
+      media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
   - if:
@@ -131,16 +189,16 @@ sequence:
   - if:
       - alias: Check if variables were set correctly
         condition: template
-        value_template: "{{ (media_path | length == 0) or (not media_path.startswith('http://')) }}"
+        value_template: "{{ not media_source in ['camera', 'path'] }}"
     then:
       - alias: Set variable for error message
         variables:
           response:
             error: >-
-              Unable to extract data because media path is missing or invalid. Provide a valid HTTP URL for the camera image.
+              Unable to extract data because media source is missing or incorrect.
       - alias: Stop the script
         stop: >-
-          Unable to extract data because media path is missing or invalid.
+          Unable to extract data because media source is missing or incorrect.
         response_variable: response
   - if:
       - alias: Check if variables were set correctly
@@ -156,29 +214,98 @@ sequence:
         stop: >-
           Unable to extract data because MIME type is missing or incorrect.
         response_variable: response
+  - if:
+      - condition: template
+        value_template: "{{ media_source == 'camera' }}"
+    then:
+      - if:
+          - alias: Check if variables were set correctly
+            condition: template
+            value_template: >-
+              {% if not ((states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) or
+              (state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | list)) -%}
+              {{ true }}
+              {% else -%}
+              {{ false }}
+              {% endif -%}
+        then:
+          - alias: Set variable for error message
+            variables:
+              response:
+                error: >-
+                  Unable to extract data because media path is incorrect.
+          - alias: Stop the script
+            stop: >-
+              Unable to extract data because media path is incorrect.
+            response_variable: response
+      - if:
+          - alias: Check if variables were set correctly
+            condition: template
+            value_template: "{{ mime_type != 'application/vnd.apple.mpegurl' }}"
+        then:
+          - alias: Set variable for error message
+            variables:
+              response:
+                error: >-
+                  Unable to extract data because MIME type is incorrect.
+          - alias: Stop the script
+            stop: >-
+              Unable to extract data because MIME type is incorrect.
+            response_variable: response
+      - variables:
+          camera_id: >-
+            {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
+            {{ states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | map(attribute='entity_id') | first }}
+            {% else -%}
+            {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
+            {% endif -%}
+      - variables:
+          attachment_url: media-source://camera/{{ camera_id }}
+    else:
+      - if:
+          - alias: Check if variables were set correctly
+            condition: template
+            value_template: "{{ media_path.startswith(('media-source', '/')) or not '/' in media_path }}"
+        then:
+          - alias: Set variable for error message
+            variables:
+              response:
+                error: >-
+                  Unable to extract data because media path is incorrect.
+          - alias: Stop the script
+            stop: >-
+              Unable to extract data because media path is incorrect.
+            response_variable: response
+      - variables:
+          attachment_url: media-source://media_source/{{ media_path }}
 
-  # Use Google Generative AI instead of AI Task
+  # Kiểm tra nếu google_ai_entity được cung cấp
   - if:
       - condition: template
         value_template: "{{ not google_ai_entity }}"
     then:
-      - action: conversation.process
-        data:
-          text: "{{ instructions }}"
-          attachment:
-            url: "{{ media_path }}"
-        response_variable: result
-    else:
-      - action: conversation.process
-        data:
-          agent_id: "{{ google_ai_entity }}"
-          text: "{{ instructions }}"
-          attachment:
-            url: "{{ media_path }}"
-        response_variable: result
+      - alias: Set variable for error message
+        variables:
+          response:
+            error: >-
+              Google AI Entity is required. Please select a Google Generative AI entity in the blueprint settings.
+      - alias: Stop the script
+        stop: >-
+          Google AI Entity is required. Please select a Google Generative AI entity in the blueprint settings.
+        response_variable: response
+
+  # Use Google Generative AI Conversation service
+  - service: google_generative_ai_conversation.generate_content
+    data:
+      agent_id: "{{ google_ai_entity }}"
+      message: "{{ instructions }}"
+      attachment:
+        url: "{{ attachment_url }}"
+        mime_type: "{{ mime_type }}"
+    response_variable: result
 
   - variables:
       response:
-        data: "{{ result.speech }}"
+        data: "{{ result.response.text }}"
   - stop: ""
     response_variable: response
