@@ -1,8 +1,8 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: DoThai1
+  author: DoThai
   description: >
-    Phân tích hình ảnh trực tiếp từ camera được truyền vào khi gọi script (không cần lưu file).
+    Phân tích hình ảnh từ camera và tự động lưu snapshot vào thư mục theo ngày trong /config/www/AnhAI/YYYY-MM-DD/
   domain: script
   homeassistant:
     min_version: 2025.8.0
@@ -18,19 +18,16 @@ blueprint:
 
     instructions_prompt:
       name: Instructions
-      description: "Mô tả yêu cầu AI cần thực hiện."
+      description: "Yêu cầu AI cần thực hiện (mặc định: phát hiện người trong ảnh)"
       selector:
         text:
           multiline: true
       default: "Phân tích xem có người trong khung hình hay không"
 
-mode: parallel
-max_exceeded: silent
-
 fields:
   camera_entity:
     name: Camera Entity
-    description: "Camera cần phân tích (truyền khi gọi script)"
+    description: "Camera cần phân tích"
     selector:
       entity:
         filter:
@@ -39,37 +36,52 @@ fields:
 
   instructions:
     name: Instructions
-    description: "Yêu cầu AI (ghi đè nếu muốn)"
+    description: "Ghi đè yêu cầu nếu muốn"
     selector:
       text:
         multiline: true
 
+mode: parallel
+max_exceeded: silent
+
 sequence:
+  # 🧩 Tạo biến và đường dẫn
   - variables:
       ai_task_entity: !input ai_task_entity
       camera_entity: "{{ camera_entity }}"
       instructions: "{{ instructions or instructions_prompt }}"
-  
-  # ✅ Kiểm tra camera hợp lệ
-  - if:
-      - condition: template
-        value_template: "{{ camera_entity is defined and camera_entity | length > 0 }}"
-    then:
-      - variables:
-          snapshot_url: "{{ state_attr(camera_entity, 'entity_picture') or '/api/camera_proxy/' ~ camera_entity }}"
-    else:
-      - stop: "Thiếu camera entity hoặc không hợp lệ."
+      today: "{{ now().strftime('%Y-%m-%d') }}"
+      folder_path: "/config/www/AnhAI/{{ today }}"
+      filename: "snapshot_{{ camera_entity.split('.')[-1] }}.jpg"
+      snapshot_file: "{{ folder_path }}/{{ filename }}"
 
-  # ✅ Gọi AI Task xử lý ảnh trực tiếp từ camera
+
+
+  # 📸 Chụp ảnh camera lưu vào đúng thư mục theo ngày
+  - service: camera.snapshot
+    data:
+      entity_id: "{{ camera_entity }}"
+      filename: "{{ snapshot_file }}"
+
+  # 🔗 Tạo đường dẫn media-source để AI đọc
+  - variables:
+      media_path: "local/AnhAI/{{ today }}/{{ filename }}"
+
+  # 🤖 Gọi AI Task xử lý ảnh
   - service: ai_task.generate_data
     data:
-      task_name: "Analyze camera frame"
+      task_name: "Analyze camera snapshot"
       instructions: "{{ instructions }}"
       attachments:
-        - media_content_id: "http://homeassistant.local:8123{{ snapshot_url }}"
+        - media_content_id: "media-source://media_source/{{ media_path }}"
           media_content_type: "image/jpeg"
       entity_id: "{{ ai_task_entity }}"
     response_variable: result
+
+  # 🧹 (Tuỳ chọn) – có thể thêm bước xoá file sau khi xử lý xong
+  # - service: shell_command.delete_snapshot
+  #   data:
+  #     file: "{{ snapshot_file }}"
 
   - variables:
       response: "{{ result.data | default('Không có phản hồi từ AI.') }}"
