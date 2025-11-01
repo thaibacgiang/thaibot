@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Capture Camera Snapshot
-  author: Thai
+  author: luuquangvu
   description: >-
     # Tool for capturing camera snapshots used for Voice Assistant
 
