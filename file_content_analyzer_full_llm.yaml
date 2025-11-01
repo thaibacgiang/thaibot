@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: thaidv
+  author: Thaidv
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -12,7 +12,7 @@ blueprint:
 
     * A template sensor stores all information about entity aliases needs to be configured in `config/configuration.yaml`.
 
-    * Downloader integration must be installed for URL image support.
+    * Downloader integration must be installed via UI (Settings > Devices & Services > Add Integration > Downloader).
 
     * Ensure `/media/ai_task` directory exists.
 
@@ -180,6 +180,7 @@ sequence:
       media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
+      temp_file_path: ""  # Khai báo biến để lưu đường dẫn file tạm
   - if:
       - alias: Check if variables were set correctly
         condition: template
@@ -230,12 +231,13 @@ sequence:
     then:
       - variables:
           filename: "ai_task_{{ now().strftime('%Y%m%d_%H%M%S') }}.{{ mime_type.split('/')[1] if '/' in mime_type else 'jpg' }}"
+          temp_file_path: "/media/ai_task/{{ filename }}"
       
       - alias: Download image from URL
         service: downloader.download_file
         data:
           url: "{{ media_path }}"
-          filename: "/media/ai_task/{{ filename }}"
+          filename: "{{ temp_file_path }}"
       
       - delay:
           seconds: 2  # Đợi download hoàn tất
@@ -324,6 +326,16 @@ sequence:
           attachments: "{{ attachments }}"
           entity_id: "{{ ai_task_entity }}"
         response_variable: result
+
+  # Xóa file tạm sau khi phân tích (nếu có)
+  - if:
+      - condition: template
+        value_template: "{{ temp_file_path and media_source == 'url' }}"
+    then:
+      - alias: Delete temporary file
+        service: file.remove
+        data:
+          file: "{{ temp_file_path }}"
 
   - variables:
       response:
