@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Capture Camera Snapshot
-  author: thaidv
+  author: thaidv1
   description: >-
     # Tool for capturing camera snapshots used for Voice Assistant
     ## Blueprint Setup
@@ -28,7 +28,7 @@ blueprint:
             attributes:
               entities: "{{ response.stdout }}"
     ```
-    * Ensure the directory defined in the snapshot settings exists (default is `/media/ai_task/{today}/`).
+    * Ensure the directory defined in the snapshot settings exists (default is `/media`).
   domain: script
   homeassistant:
     min_version: 2024.10.0
@@ -47,8 +47,8 @@ blueprint:
       description: Configure where snapshots should be stored.
       input:
         snapshot_directory:
-          name: Snapshot Base Directory
-          default: /media/ai_task
+          name: Snapshot Directory
+          default: /media
           selector:
             text:
         snapshot_filename_prefix:
@@ -84,13 +84,9 @@ sequence:
   - variables:
       entity_aliases: !input entity_aliases
       camera_name: "{{ camera_name | default('') | trim }}"
-      snapshot_base_dir: "{{ (snapshot_directory | default('/media/ai_task', true)) | trim }}"
+      snapshot_directory: "{{ (snapshot_directory | default('/media', true)) | trim }}"
       snapshot_prefix: "{{ (snapshot_filename_prefix | default('camera_snapshot_', true)) | trim }}"
       snapshot_extension: "{{ (snapshot_file_extension | default('jpg', true)) | trim | lower }}"
-      
-      # Tạo đường dẫn với ngày hiện tại
-      today_folder: "{{ now().strftime('%Y-%m-%d') }}"
-      snapshot_directory_full: "{{ snapshot_base_dir.rstrip('/') }}/{{ today_folder }}"
   
   # Debug: Log thông tin camera
   - service: system_log.write
@@ -101,7 +97,6 @@ sequence:
         Input name: '{{ camera_name }}'
         All cameras: {{ states.camera | map(attribute='name') | list }}
         All friendly names: {{ states.camera | map(attribute='attributes.friendly_name') | list }}
-        Snapshot directory: {{ snapshot_directory_full }}
   
   - alias: Find camera entity with improved search
     variables:
@@ -110,17 +105,12 @@ sequence:
       
       # Tìm theo friendly_name không phân biệt hoa thường
       case_insensitive_match: >-
-        {% set cameras = states.camera | selectattr('attributes.friendly_name', '!=', 'none') | list %}
-        {% set matches = [] %}
-        {% for camera in cameras %}
-          {% if camera.attributes.friendly_name | lower == camera_name | lower %}
-            {% set matches = matches + [camera] %}
-          {% endif %}
-        {% endfor %}
-        {{ matches }}
+        {{ states.camera | selectattr('attributes.friendly_name', '!=', 'none') |
+           selectattr('attributes.friendly_name', 'lower') |
+           selectattr('lower', '==', camera_name | lower) | list }}
       
       # Tìm theo entity_id (nếu người dùng nhập entity_id)
-      entity_id_match: "{{ true if camera_name.startswith('camera.') and states(camera_name) != 'unavailable' else false }}"
+      entity_id_match: "{{ states(camera_name) if camera_name.startswith('camera.') else None }}"
       
       # Tìm trong aliases
       alias_match: "{{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\\.') | selectattr('aliases', 'contains', camera_name) | list }}"
@@ -133,7 +123,7 @@ sequence:
         Search results: 
         Friendly match: {{ friendly_match | length }}
         Case insensitive: {{ case_insensitive_match | length }}
-        Entity ID match: {{ entity_id_match }}
+        Entity ID match: {{ entity_id_match is not none }}
         Alias match: {{ alias_match | length }}
   
   - alias: Validate camera name
@@ -143,7 +133,7 @@ sequence:
           {% set has_match = 
             friendly_match | length > 0 or
             case_insensitive_match | length > 0 or 
-            entity_id_match or
+            (entity_id_match is not none) or
             alias_match | length > 0 %}
           {{ not camera_name or not has_match }}
     then:
@@ -165,7 +155,7 @@ sequence:
           {{ friendly_match[0].entity_id }}
         {% elif case_insensitive_match | length > 0 %}
           {{ case_insensitive_match[0].entity_id }}
-        {% elif entity_id_match %}
+        {% elif entity_id_match is not none %}
           {{ camera_name }}
         {% elif alias_match | length > 0 %}
           {{ alias_match[0].entity_id }}
@@ -175,19 +165,9 @@ sequence:
       sanitized_extension: >-
         {% set ext = snapshot_extension | regex_replace('[^0-9a-z]', '') %}
         {{ '.' ~ (ext if ext else 'jpg') }}
-      
-      # Tạo tên file với timestamp
-      snapshot_timestamp: "{{ now().strftime('%Y%m%d_%H%M%S') }}"
-      snapshot_random_suffix: "{{ '%03d' | format(range(0, 1000) | random) }}"
-      snapshot_filename: "{{ sanitized_prefix ~ snapshot_timestamp ~ '_' ~ snapshot_random_suffix ~ sanitized_extension }}"
-      snapshot_full_path: "{{ snapshot_directory_full }}/{{ snapshot_filename }}"
-  
-  # Tạo thư mục nếu chưa tồn tại
-  - alias: Create directory if not exists
-    service: shell_command.create_directory
-    data:
-      path: "{{ snapshot_directory_full }}"
-    enabled: false  # Tắt nếu không có shell_command tạo thư mục
+      snapshot_directory_normalized: "{{ snapshot_directory.rstrip('/\\') }}"
+      snapshot_filename: "{{ sanitized_prefix ~ now().strftime('%Y%m%d%H%M%S') ~ sanitized_extension }}"
+      snapshot_full_path: "{{ snapshot_directory_normalized ~ '/' ~ snapshot_filename }}"
   
   # Debug thông tin cuối cùng
   - service: system_log.write
@@ -196,8 +176,7 @@ sequence:
       message: >-
         Final camera selection: 
         Entity ID: {{ camera_entity_id }}
-        Full Path: {{ snapshot_full_path }}
-        Directory: {{ snapshot_directory_full }}
+        Path: {{ snapshot_full_path }}
 
   - action: camera.snapshot
     target:
@@ -210,8 +189,6 @@ sequence:
         success: true
         image_path: "{{ snapshot_full_path }}"
         camera: "{{ camera_entity_id }}"
-        directory: "{{ snapshot_directory_full }}"
-        filename: "{{ snapshot_filename }}"
   
   - stop: "Snapshot captured successfully"
     response_variable: response
