@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: DoThai
+  author: DoThai1
   description: >
     Phân tích hình ảnh trực tiếp từ camera được truyền vào khi gọi script (không cần lưu file).
   domain: script
@@ -10,7 +10,7 @@ blueprint:
   input:
     ai_task_entity:
       name: AI Task Entity
-      description: Entity của AI Task (ví dụ: ai_task.gemini_2_5_flash_ai_task)
+      description: "Entity của AI Task (ví dụ: ai_task.gemini_2_5_flash_ai_task)"
       selector:
         entity:
           filter:
@@ -18,11 +18,11 @@ blueprint:
 
     instructions_prompt:
       name: Instructions
-      description: Mô tả yêu cầu AI cần thực hiện
+      description: "Mô tả yêu cầu AI cần thực hiện."
       selector:
         text:
           multiline: true
-      default: Phân tích xem có người trong khung hình hay không
+      default: "Phân tích xem có người trong khung hình hay không"
 
 mode: parallel
 max_exceeded: silent
@@ -30,7 +30,7 @@ max_exceeded: silent
 fields:
   camera_entity:
     name: Camera Entity
-    description: Camera cần phân tích (truyền khi gọi script)
+    description: "Camera cần phân tích (truyền khi gọi script)"
     selector:
       entity:
         filter:
@@ -39,7 +39,7 @@ fields:
 
   instructions:
     name: Instructions
-    description: Yêu cầu AI (ghi đè nếu muốn)
+    description: "Yêu cầu AI (ghi đè nếu muốn)"
     selector:
       text:
         multiline: true
@@ -63,11 +63,11 @@ sequence:
   # ✅ Gọi AI Task xử lý ảnh trực tiếp từ camera
   - service: ai_task.generate_data
     data:
-      task_name: Analyze camera frame
+      task_name: "Analyze camera frame"
       instructions: "{{ instructions }}"
       attachments:
         - media_content_id: "http://homeassistant.local:8123{{ snapshot_url }}"
-          media_content_type: image/jpeg
+          media_content_type: "image/jpeg"
       entity_id: "{{ ai_task_entity }}"
     response_variable: result
 
