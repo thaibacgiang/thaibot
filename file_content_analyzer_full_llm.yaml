@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: (modified by DoThai)
+  author: luuquangvu (modified by DoThai)
   description: >-
     Analyze and extract information from media, document, or camera entities (supports direct camera image URL without saving files).
   domain: script
@@ -10,11 +10,12 @@ blueprint:
   input:
     ai_task_settings:
       name: Settings for AI Task
-      icon: mdi:robot-outline
+      description: Set up the AI Task responsible for handling the analyzer task.
       collapsed: true
       input:
         ai_task_entity:
           name: AI Task Entity
+          description: Select the AI Task entity to process this request.
           selector:
             entity:
               filter:
@@ -23,7 +24,7 @@ blueprint:
 
     prompt_settings:
       name: Prompt settings
-      icon: mdi:robot
+      description: Configure how the AI interprets your inputs.
       collapsed: true
       input:
         instructions_prompt:
@@ -51,7 +52,6 @@ blueprint:
 
     camera_input:
       name: Camera (optional)
-      icon: mdi:cctv
       description: Select a camera to analyze directly (no file saved).
       selector:
         entity:
@@ -73,12 +73,14 @@ fields:
       text:
         multiline: true
     required: true
+
   media_path:
     name: Media Path (ignored if camera selected)
     description: !input media_path_prompt
     selector:
       text:
     required: false
+
   mime_type:
     name: MIME Type
     description: !input mime_type_prompt
@@ -94,7 +96,7 @@ sequence:
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
 
-  # ✅ Kiểm tra dữ liệu đầu vào
+  # ✅ Validate inputs
   - if:
       - condition: template
         value_template: "{{ not instructions }}"
@@ -113,13 +115,18 @@ sequence:
     then:
       - stop: "Invalid MIME type."
 
-  # 📸 Nếu có camera → tạo URL ảnh trực tiếp
+  # 📸 If camera is selected, fetch live image URL
   - choose:
       - conditions: "{{ camera_entity is defined and camera_entity != '' }}"
         sequence:
           - variables:
               camera_image_url: >
-                {{ states[camera_entity].attributes.entity_picture | default('') }}
+                {% set pic = states[camera_entity].attributes.entity_picture | default('') %}
+                {% if pic.startswith('/api/') %}
+                  {{ hass.config.external_url | default('http://homeassistant.local:8123') }}{{ pic }}
+                {% else %}
+                  {{ pic }}
+                {% endif %}
           - if:
               - condition: template
                 value_template: "{{ not camera_image_url }}"
@@ -140,7 +147,7 @@ sequence:
             [{ "media_content_id": "media-source://media_source/{{ media_path }}", "media_content_type": "{{ mime_type }}" }]
             {% endif %}
 
-  # 🧠 Gọi AI Task
+  # 🧠 Call AI task
   - choose:
       - conditions: "{{ ai_task_entity | length == 0 }}"
         sequence:
