@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: DoThai2
+  author: DoThai
   description: >-
     Chụp ảnh từ camera, lưu vào /media/ai_task/image/<ngày>, rồi gửi đúng metadata cho AI Task.
   domain: script
@@ -10,25 +10,25 @@ blueprint:
   input:
     ai_task_entity:
       name: AI Task Entity
-      description: Entity của AI Task (ví dụ: ai_task.gemini_2_5_flash_ai_task)
+      description: "Entity của AI Task (ví dụ: ai_task.gemini_2_5_flash_ai_task)"
       selector:
         entity:
           filter:
             domain: ai_task
     camera_entity:
       name: Camera Entity
-      description: Camera để chụp ảnh snapshot
+      description: "Camera để chụp ảnh snapshot"
       selector:
         entity:
           filter:
             domain: camera
     instructions_prompt:
       name: Hướng dẫn phân tích
-      description: Mô tả nội dung muốn AI phân tích
+      description: "Mô tả nội dung muốn AI phân tích"
       selector:
         text:
           multiline: true
-      default: Phân tích hình ảnh ngắn gọn.
+      default: "Phân tích hình ảnh ngắn gọn."
 
 mode: parallel
 max_exceeded: silent
@@ -43,8 +43,6 @@ sequence:
       folder_path: "/media/ai_task/image/{{ today }}"
       file_path: "{{ folder_path }}/{{ filename }}"
       media_source_path: "media-source://media_source/ai_task/image/{{ today }}/{{ filename }}"
-
-
 
   # 📸 Chụp ảnh camera
   - service: camera.snapshot
