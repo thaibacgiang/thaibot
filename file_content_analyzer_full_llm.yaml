@@ -1,8 +1,8 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: luuquangvuT
+  author: thaidv
   description: >-
-    # Tool designed to analyze and extract all types of information from media and document files
+    # Tool designed to analyze and extract all types of information from media files
 
     ## Blueprint Setup
 
@@ -38,19 +38,14 @@ blueprint:
 
     ```
 
-    ### Optional
-
-    * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
-
     ### Note
 
     * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to extract data from a media or document file.
 
-    * Expose any camera entities you want to use through Assist, and Assist will be able to "see" whenever you ask.
+    * Expose any camera entities you want to use through Assist.
 
     * Make sure to expose the script to Assist after the script has been saved.
 
-    * Do not alter the default script name.
   domain: script
   homeassistant:
     min_version: 2025.8.0
@@ -110,7 +105,7 @@ blueprint:
 
             Always specify the media source.
 
-            It must be one of the following values: 'camera' for a camera entity, 'path' for local files, 'url' for HTTP URLs, or 'ai_task' for AI generated images.
+            It must be one of the following values: 'camera' for a camera entity, 'path' for local files, or 'ai_task' for AI generated images.
         media_path_prompt:
           name: Media Path Prompt
           description: The prompt which will be used for the LLM can provide the media path for the query.
@@ -120,7 +115,7 @@ blueprint:
           default: >-
             This argument is mandatory and must always be provided.
 
-            Always specify either the relative path of the media, the camera entity name, HTTP URL, or AI Task image path.
+            Always specify either the relative path of the media, the camera entity name, or AI Task image path.
         mime_type_prompt:
           name: MIME Type Prompt
           description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
@@ -132,8 +127,8 @@ blueprint:
 
             Always specify the MIME type of the media.
 
-            If the media source is 'camera', the MIME type must be set to 'application/vnd.apple.mpegurl'.
-            If the media source is 'url' or 'ai_task', specify the appropriate MIME type like 'image/jpeg', 'image/png', etc.
+            If the media source is 'camera', the MIME type must be set to 'image/jpeg'.
+            If the media source is 'ai_task', specify the appropriate MIME type like 'image/jpeg', 'image/png', etc.
 mode: parallel
 max_exceeded: silent
 variables:
@@ -154,7 +149,6 @@ fields:
         options:
           - camera
           - path
-          - url
           - ai_task
     required: true
   media_path:
@@ -177,6 +171,7 @@ sequence:
       media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
+      temp_file_path: ""
   - if:
       - alias: Check if variables were set correctly
         condition: template
@@ -194,7 +189,7 @@ sequence:
   - if:
       - alias: Check if variables were set correctly
         condition: template
-        value_template: "{{ not media_source in ['camera', 'path', 'url', 'ai_task'] }}"
+        value_template: "{{ not media_source in ['camera', 'path', 'ai_task'] }}"
     then:
       - alias: Set variable for error message
         variables:
@@ -205,92 +200,17 @@ sequence:
         stop: >-
           Unable to extract data because media source is missing or incorrect.
         response_variable: response
-  - if:
-      - alias: Check if variables were set correctly
-        condition: template
-        value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
-    then:
-      - alias: Set variable for error message
-        variables:
-          response:
-            error: >-
-              Unable to extract data because MIME type is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
-          Unable to extract data because MIME type is missing or incorrect.
-        response_variable: response
 
-  # Xử lý AI Task images (sử dụng trực tiếp từ media source của AI Task)
-  - if:
-      - condition: template
-        value_template: "{{ media_source == 'ai_task' }}"
-    then:
-      - variables:
-          attachments:
-            media_content_id: "media-source://ai_task/image/{{ media_path }}"
-            media_content_type: "{{ mime_type }}"
-
-  # Xử lý URL images - download và lưu vào media source
-  - if:
-      - condition: template
-        value_template: "{{ media_source == 'url' }}"
-    then:
-      - variables:
-          filename: "downloaded_{{ now().strftime('%Y%m%d_%H%M%S') }}.{{ mime_type.split('/')[1] if '/' in mime_type else 'jpg' }}"
-      
-      - alias: Download image from URL
-        service: downloader.download_file
-        data:
-          url: "{{ media_path }}"
-          filename: "/config/www/{{ filename }}"
-      
-      - delay:
-          seconds: 2
-      
-      - variables:
-          attachments:
-            media_content_id: "media-source://media_source/local/{{ filename }}"
-            media_content_type: "{{ mime_type }}"
-
-  # Xử lý camera source
+  # Xử lý Camera - chụp ảnh trực tiếp và lưu file tạm
   - if:
       - condition: template
         value_template: "{{ media_source == 'camera' }}"
     then:
-      - if:
-          - alias: Check if variables were set correctly
-            condition: template
-            value_template: >-
-              {% if not ((states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) or
-              (state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | list)) -%}
-              {{ true }}
-              {% else -%}
-              {{ false }}
-              {% endif -%}
-        then:
-          - alias: Set variable for error message
-            variables:
-              response:
-                error: >-
-                  Unable to extract data because media path is incorrect.
-          - alias: Stop the script
-            stop: >-
-              Unable to extract data because media path is incorrect.
-            response_variable: response
-      - if:
-          - alias: Check if variables were set correctly
-            condition: template
-            value_template: "{{ mime_type != 'application/vnd.apple.mpegurl' }}"
-        then:
-          - alias: Set variable for error message
-            variables:
-              response:
-                error: >-
-                  Unable to extract data because MIME type is incorrect.
-          - alias: Stop the script
-            stop: >-
-              Unable to extract data because MIME type is incorrect.
-            response_variable: response
+      - variables:
+          filename: "camera_snapshot_{{ now().strftime('%Y%m%d_%H%M%S') }}.jpg"
+          temp_file_path: "/config/www/{{ filename }}"
+      
+      # Tìm camera entity ID
       - variables:
           camera_id: >-
             {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
@@ -298,9 +218,29 @@ sequence:
             {% else -%}
             {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
             {% endif -%}
+      
+      - alias: Capture snapshot from camera
+        service: camera.snapshot
+        data:
+          entity_id: "{{ camera_id }}"
+          filename: "{{ temp_file_path }}"
+      
+      - delay:
+          seconds: 2
+      
       - variables:
           attachments:
-            media_content_id: media-source://camera/{{ camera_id }}
+            media_content_id: "media-source://media_source/local/{{ filename }}"
+            media_content_type: "image/jpeg"
+
+  # Xử lý AI Task images
+  - if:
+      - condition: template
+        value_template: "{{ media_source == 'ai_task' }}"
+    then:
+      - variables:
+          attachments:
+            media_content_id: "media-source://ai_task/image/{{ media_path }}"
             media_content_type: "{{ mime_type }}"
   
   # Xử lý path source (file local)
@@ -332,6 +272,16 @@ sequence:
           attachments: "{{ attachments }}"
           entity_id: "{{ ai_task_entity }}"
         response_variable: result
+
+  # Xóa file tạm (chỉ cho camera)
+  - if:
+      - condition: template
+        value_template: "{{ temp_file_path and media_source == 'camera' }}"
+    then:
+      - alias: Delete temporary file
+        service: file.remove
+        data:
+          file: "{{ temp_file_path }}"
 
   - variables:
       response:
