@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv
+  author: thaidv
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -13,6 +13,8 @@ blueprint:
     * A template sensor stores all information about entity aliases needs to be configured in `config/configuration.yaml`.
 
     * Downloader integration must be installed for URL image support.
+
+    * Ensure `/media/ai_task` directory exists.
 
     ```
 
@@ -228,17 +230,16 @@ sequence:
     then:
       - variables:
           filename: "ai_task_{{ now().strftime('%Y%m%d_%H%M%S') }}.{{ mime_type.split('/')[1] if '/' in mime_type else 'jpg' }}"
-          media_dir: "/media/ai_task"
-          full_path: "{{ media_dir }}/{{ filename }}"
-      - alias: Create directory if not exists
-        service: shell_command.create_directory
-        data:
-          path: "{{ media_dir }}"
+      
       - alias: Download image from URL
         service: downloader.download_file
         data:
           url: "{{ media_path }}"
-          filename: "{{ full_path }}"
+          filename: "/media/ai_task/{{ filename }}"
+      
+      - delay:
+          seconds: 2  # Đợi download hoàn tất
+      
       - variables:
           media_path: "local/ai_task/{{ filename }}"
           media_source: "path"
@@ -299,20 +300,6 @@ sequence:
       - condition: template
         value_template: "{{ media_source == 'path' }}"
     then:
-      - if:
-          - alias: Check if variables were set correctly
-            condition: template
-            value_template: "{{ media_path.startswith(('media-source', '/')) or not '/' in media_path }}"
-        then:
-          - alias: Set variable for error message
-            variables:
-              response:
-                error: >-
-                  Unable to extract data because media path is incorrect.
-          - alias: Stop the script
-            stop: >-
-              Unable to extract data because media path is incorrect.
-            response_variable: response
       - variables:
           attachments:
             media_content_id: media-source://media_source/{{ media_path }}
@@ -337,15 +324,6 @@ sequence:
           attachments: "{{ attachments }}"
           entity_id: "{{ ai_task_entity }}"
         response_variable: result
-
-  # Cleanup: Xóa file tạm sau khi phân tích (tùy chọn)
-  - if:
-      - condition: template
-        value_template: "{{ media_source == 'url' and full_path is defined }}"
-    then:
-      - service: shell_command.remove_file
-        data:
-          path: "{{ full_path }}"
 
   - variables:
       response:
