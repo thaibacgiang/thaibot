@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv
+  author: luuquangvuT
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -11,10 +11,6 @@ blueprint:
     * An AI Task entity must be created and configured in the System - General settings.
 
     * A template sensor stores all information about entity aliases needs to be configured in `config/configuration.yaml`.
-
-    * Downloader integration must be installed via UI (Settings > Devices & Services > Add Integration > Downloader).
-
-    * Ensure `/media/ai_task` directory exists.
 
     ```
 
@@ -114,7 +110,7 @@ blueprint:
 
             Always specify the media source.
 
-            It must be one of the following values: 'camera' for a camera entity, 'path' for local files, or 'url' for HTTP URLs.
+            It must be one of the following values: 'camera' for a camera entity, 'path' for local files, 'url' for HTTP URLs, or 'ai_task' for AI generated images.
         media_path_prompt:
           name: Media Path Prompt
           description: The prompt which will be used for the LLM can provide the media path for the query.
@@ -124,7 +120,7 @@ blueprint:
           default: >-
             This argument is mandatory and must always be provided.
 
-            Always specify either the relative path of the media, the camera entity name, or HTTP URL.
+            Always specify either the relative path of the media, the camera entity name, HTTP URL, or AI Task image path.
         mime_type_prompt:
           name: MIME Type Prompt
           description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
@@ -137,11 +133,11 @@ blueprint:
             Always specify the MIME type of the media.
 
             If the media source is 'camera', the MIME type must be set to 'application/vnd.apple.mpegurl'.
-            If the media source is 'url', specify the appropriate MIME type like 'image/jpeg', 'image/png', etc.
+            If the media source is 'url' or 'ai_task', specify the appropriate MIME type like 'image/jpeg', 'image/png', etc.
 mode: parallel
 max_exceeded: silent
 variables:
-  version: 20250923
+  version: 20251102
 fields:
   instructions:
     name: Instructions
@@ -159,6 +155,7 @@ fields:
           - camera
           - path
           - url
+          - ai_task
     required: true
   media_path:
     name: Media Path
@@ -180,7 +177,6 @@ sequence:
       media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
-      temp_file_path: ""  # Khai báo biến để lưu đường dẫn file tạm
   - if:
       - alias: Check if variables were set correctly
         condition: template
@@ -198,7 +194,7 @@ sequence:
   - if:
       - alias: Check if variables were set correctly
         condition: template
-        value_template: "{{ not media_source in ['camera', 'path', 'url'] }}"
+        value_template: "{{ not media_source in ['camera', 'path', 'url', 'ai_task'] }}"
     then:
       - alias: Set variable for error message
         variables:
@@ -224,27 +220,37 @@ sequence:
           Unable to extract data because MIME type is missing or incorrect.
         response_variable: response
 
+  # Xử lý AI Task images (sử dụng trực tiếp từ media source của AI Task)
+  - if:
+      - condition: template
+        value_template: "{{ media_source == 'ai_task' }}"
+    then:
+      - variables:
+          attachments:
+            media_content_id: "media-source://ai_task/image/{{ media_path }}"
+            media_content_type: "{{ mime_type }}"
+
   # Xử lý URL images - download và lưu vào media source
   - if:
       - condition: template
         value_template: "{{ media_source == 'url' }}"
     then:
       - variables:
-          filename: "ai_task_{{ now().strftime('%Y%m%d_%H%M%S') }}.{{ mime_type.split('/')[1] if '/' in mime_type else 'jpg' }}"
-          temp_file_path: "/media/ai_task/{{ filename }}"
+          filename: "downloaded_{{ now().strftime('%Y%m%d_%H%M%S') }}.{{ mime_type.split('/')[1] if '/' in mime_type else 'jpg' }}"
       
       - alias: Download image from URL
         service: downloader.download_file
         data:
           url: "{{ media_path }}"
-          filename: "{{ temp_file_path }}"
+          filename: "/config/www/{{ filename }}"
       
       - delay:
-          seconds: 2  # Đợi download hoàn tất
+          seconds: 2
       
       - variables:
-          media_path: "local/ai_task/{{ filename }}"
-          media_source: "path"
+          attachments:
+            media_content_id: "media-source://media_source/local/{{ filename }}"
+            media_content_type: "{{ mime_type }}"
 
   # Xử lý camera source
   - if:
@@ -297,14 +303,14 @@ sequence:
             media_content_id: media-source://camera/{{ camera_id }}
             media_content_type: "{{ mime_type }}"
   
-  # Xử lý path source (bao gồm cả sau khi download từ URL)
+  # Xử lý path source (file local)
   - if:
       - condition: template
         value_template: "{{ media_source == 'path' }}"
     then:
       - variables:
           attachments:
-            media_content_id: media-source://media_source/{{ media_path }}
+            media_content_id: "media-source://media_source/{{ media_path }}"
             media_content_type: "{{ mime_type }}"
 
   # Gọi AI Task để phân tích
@@ -326,16 +332,6 @@ sequence:
           attachments: "{{ attachments }}"
           entity_id: "{{ ai_task_entity }}"
         response_variable: result
-
-  # Xóa file tạm sau khi phân tích (nếu có)
-  - if:
-      - condition: template
-        value_template: "{{ temp_file_path and media_source == 'url' }}"
-    then:
-      - alias: Delete temporary file
-        service: file.remove
-        data:
-          file: "{{ temp_file_path }}"
 
   - variables:
       response:
