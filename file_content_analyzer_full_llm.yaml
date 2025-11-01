@@ -1,173 +1,77 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: luuquangvu (modified by DoThai)
-  description: >-
-    Analyze and extract information from media, document, or camera entities (supports direct camera image URL without saving files).
+  author: DoThai
+  description: >
+    Phân tích hình ảnh trực tiếp từ camera được truyền vào khi gọi script (không cần lưu file).
   domain: script
   homeassistant:
     min_version: 2025.8.0
 
   input:
-    ai_task_settings:
-      name: Settings for AI Task
-      description: Set up the AI Task responsible for handling the analyzer task.
-      collapsed: true
-      input:
-        ai_task_entity:
-          name: AI Task Entity
-          description: Select the AI Task entity to process this request.
-          selector:
-            entity:
-              filter:
-                domain: ai_task
-          default:
-
-    prompt_settings:
-      name: Prompt settings
-      description: Configure how the AI interprets your inputs.
-      collapsed: true
-      input:
-        instructions_prompt:
-          name: Instructions Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            Describe what the AI should analyze or extract from the image or document.
-        media_path_prompt:
-          name: Media Path Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            Provide a media path starting with:
-            - `local/` for local media
-            - or `http://` / `https://` for remote images.
-        mime_type_prompt:
-          name: MIME Type Prompt
-          selector:
-            text:
-              multiline: true
-          default: image/jpeg
-
-    camera_input:
-      name: Camera (optional)
-      description: Select a camera to analyze directly (no file saved).
+    ai_task_entity:
+      name: AI Task Entity
+      description: Entity của AI Task (ví dụ: ai_task.gemini_2_5_flash_ai_task)
       selector:
         entity:
           filter:
-            domain: camera
-      default:
+            domain: ai_task
+
+    instructions_prompt:
+      name: Instructions
+      description: Mô tả yêu cầu AI cần thực hiện
+      selector:
+        text:
+          multiline: true
+      default: Phân tích xem có người trong khung hình hay không
 
 mode: parallel
 max_exceeded: silent
 
-variables:
-  version: 20251101
-
 fields:
+  camera_entity:
+    name: Camera Entity
+    description: Camera cần phân tích (truyền khi gọi script)
+    selector:
+      entity:
+        filter:
+          domain: camera
+    required: true
+
   instructions:
     name: Instructions
-    description: !input instructions_prompt
+    description: Yêu cầu AI (ghi đè nếu muốn)
     selector:
       text:
         multiline: true
-    required: true
-
-  media_path:
-    name: Media Path (ignored if camera selected)
-    description: !input media_path_prompt
-    selector:
-      text:
-    required: false
-
-  mime_type:
-    name: MIME Type
-    description: !input mime_type_prompt
-    selector:
-      text:
-    required: true
 
 sequence:
   - variables:
       ai_task_entity: !input ai_task_entity
-      camera_entity: !input camera_input
-      instructions: "{{ instructions | default('') | trim }}"
-      media_path: "{{ media_path | default('') | trim }}"
-      mime_type: "{{ mime_type | default('') | trim }}"
-
-  # ✅ Validate inputs
+      camera_entity: "{{ camera_entity }}"
+      instructions: "{{ instructions or instructions_prompt }}"
+  
+  # ✅ Kiểm tra camera hợp lệ
   - if:
       - condition: template
-        value_template: "{{ not instructions }}"
+        value_template: "{{ camera_entity is defined and camera_entity | length > 0 }}"
     then:
-      - stop: "Missing 'instructions'. Please describe what to analyze."
-
-  - if:
-      - condition: template
-        value_template: "{{ not (camera_entity or media_path) }}"
-    then:
-      - stop: "Missing media source. Please provide a media path or select a camera."
-
-  - if:
-      - condition: template
-        value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
-    then:
-      - stop: "Invalid MIME type."
-
-  # 📸 If camera is selected, fetch live image URL
-  - choose:
-      - conditions: "{{ camera_entity is defined and camera_entity != '' }}"
-        sequence:
-          - variables:
-              camera_image_url: >
-                {% set pic = states[camera_entity].attributes.entity_picture | default('') %}
-                {% if pic.startswith('/api/') %}
-                  {{ hass.config.external_url | default('http://homeassistant.local:8123') }}{{ pic }}
-                {% else %}
-                  {{ pic }}
-                {% endif %}
-          - if:
-              - condition: template
-                value_template: "{{ not camera_image_url }}"
-            then:
-              - stop: "This camera does not expose an image URL. Try another camera or specify a media path."
-          - variables:
-              attachments: >
-                [{
-                  "media_content_id": "{{ camera_image_url }}",
-                  "media_content_type": "{{ mime_type }}"
-                }]
-    default:
       - variables:
-          attachments: >
-            {% if media_path.startswith('http://') or media_path.startswith('https://') %}
-            [{ "media_content_id": "{{ media_path }}", "media_content_type": "{{ mime_type }}" }]
-            {% else %}
-            [{ "media_content_id": "media-source://media_source/{{ media_path }}", "media_content_type": "{{ mime_type }}" }]
-            {% endif %}
+          snapshot_url: "{{ state_attr(camera_entity, 'entity_picture') or '/api/camera_proxy/' ~ camera_entity }}"
+    else:
+      - stop: "Thiếu camera entity hoặc không hợp lệ."
 
-  # 🧠 Call AI task
-  - choose:
-      - conditions: "{{ ai_task_entity | length == 0 }}"
-        sequence:
-          - service: ai_task.generate_data
-            data:
-              task_name: Analyze content from a media or document file
-              instructions: "{{ instructions }}"
-              attachments: "{{ attachments }}"
-            response_variable: result
-    default:
-      - service: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media or document file
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-          entity_id: "{{ ai_task_entity }}"
-        response_variable: result
+  # ✅ Gọi AI Task xử lý ảnh trực tiếp từ camera
+  - service: ai_task.generate_data
+    data:
+      task_name: Analyze camera frame
+      instructions: "{{ instructions }}"
+      attachments:
+        - media_content_id: "http://homeassistant.local:8123{{ snapshot_url }}"
+          media_content_type: image/jpeg
+      entity_id: "{{ ai_task_entity }}"
+    response_variable: result
 
   - variables:
-      response:
-        data: "{{ result.data }}"
-  - stop: ""
-    response_variable: response
+      response: "{{ result.data | default('Không có phản hồi từ AI.') }}"
+
+  - stop: "{{ response }}"
