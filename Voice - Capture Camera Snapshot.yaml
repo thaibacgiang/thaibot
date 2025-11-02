@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Capture Camera Snapshot
-  author: luuquanhddd
+  author: luuquangvu
   description: >-
     # Tool for capturing camera snapshots used for Voice Assistant
 
@@ -127,61 +127,21 @@ sequence:
       snapshot_prefix: "{{ snapshot_prefix_input | default('camera_snapshot_', true) | trim }}"
       snapshot_extension_input: !input snapshot_file_extension
       snapshot_extension: "{{ snapshot_extension_input | default('jpg', true) | trim | lower }}"
-  
-  # Debug: Log thông tin đầu vào
-  - service: system_log.write
-    data:
-      level: info
-      message: >-
-        Voice command received: 
-        Camera name: '{{ camera_name }}'
-        All cameras: {{ states.camera | map(attribute='attributes.friendly_name') | list }}
-  
-  - alias: Validate camera name with better matching
-    variables:
-      friendly_match: "{{ states.camera | selectattr('attributes.friendly_name', '==', camera_name) | list }}"
-      # Tìm kiếm không phân biệt hoa thường và tìm theo từ khóa
-      keyword_match: >-
-        {% set matches = [] %}
-        {% for camera in states.camera %}
-          {% set friendly_name = camera.attributes.friendly_name | default('') | lower %}
-          {% set search_name = camera_name | lower %}
-          {% if search_name in friendly_name or friendly_name in search_name %}
-            {% set matches = matches + [camera] %}
-          {% endif %}
-        {% endfor %}
-        {{ matches }}
-      alias_match: "{{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\\.') | selectattr('aliases', 'contains', camera_name) | list }}"
-    
-    # Debug kết quả tìm kiếm
-  - service: system_log.write
-    data:
-      level: info
-      message: >-
-        Camera search results: 
-        Friendly match: {{ friendly_match | length }}
-        Keyword match: {{ keyword_match | length }}
-        Alias match: {{ alias_match | length }}
-        Keyword matches: {{ keyword_match | map(attribute='attributes.friendly_name') | list }}
-  
-  - alias: Check if camera found
+  - alias: Validate camera name
     if:
       - condition: template
         value_template: >-
-          {{ not camera_name or (friendly_match | length == 0 and keyword_match | length == 0 and alias_match | length == 0) }}
+          {% set friendly_match = states.camera | selectattr('attributes.friendly_name', '==', camera_name) | list %}
+          {% set alias_match = state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', camera_name) | list %}
+          {{ not camera_name or (friendly_match | length == 0 and alias_match | length == 0) }}
     then:
-      - service: system_log.write
-        data:
-          level: error
-          message: >-
-            Camera not found: '{{ camera_name }}'. 
-            Available cameras: {{ states.camera | map(attribute='attributes.friendly_name') | list }}
-      - variables:
+      - alias: Set variable for error message
+        variables:
           response:
-            error: "Không tìm thấy camera '{{ camera_name }}'. Các camera có sẵn: {{ states.camera | map(attribute='attributes.friendly_name') | list | join(', ') }}"
-      - stop: "Camera không hợp lệ"
+            error: Unable to capture a snapshot because the camera name is invalid.
+      - alias: Stop the script
+        stop: Unable to capture a snapshot because the camera name is invalid.
         response_variable: response
-
   - alias: Validate snapshot settings
     if:
       - condition: template
@@ -195,20 +155,20 @@ sequence:
       - alias: Stop the script
         stop: Unable to capture a snapshot because the snapshot directory is missing.
         response_variable: response
-
   - variables:
       camera_entity_id: >-
-        {% if friendly_match | length > 0 %}
-          {{ friendly_match[0].entity_id }}
-        {% elif keyword_match | length > 0 %}
-          {{ keyword_match[0].entity_id }}
-        {% elif alias_match | length > 0 %}
-          {{ alias_match[0].entity_id }}
+        {% set friendly_match = states.camera | selectattr('attributes.friendly_name', '==', camera_name) | map(attribute='entity_id') | first %}
+        {% if friendly_match %}
+          {{ friendly_match }}
+        {% else %}
+          {% set alias_match = state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', camera_name) | map(attribute='entity_id') | first %}
+          {% if alias_match %}
+            {{ alias_match }}
+          {% else %}
+            {% set numeric_match = states.camera | selectattr('entity_id', 'match', 'camera\.[0-9_]+') | selectattr('attributes.friendly_name', '==', camera_name) | map(attribute='entity_id') | first %}
+            {{ numeric_match }}
+          {% endif %}
         {% endif %}
-      
-      # Tạo đường dẫn theo ngày
-      today_folder: "{{ now().strftime('%Y-%m-%d') }}"
-      snapshot_directory_with_date: "{{ snapshot_directory.rstrip('/\\') }}/{{ today_folder }}"
       sanitized_prefix: >-
         {% if snapshot_prefix %}
           {{ snapshot_prefix | regex_replace('[^0-9A-Za-z_-]', '_') }}
@@ -222,11 +182,17 @@ sequence:
         {% else %}
           .jpg
         {% endif %}
+      snapshot_directory_normalized: >-
+        {% if snapshot_directory %}
+          {{ snapshot_directory.rstrip('/\\') }}
+        {% else %}
+          /media
+        {% endif %}
       snapshot_random_suffix: "{{ '%05d' | format(range(0, 100000) | random) }}"
       snapshot_filename: >-
-        {{ sanitized_prefix ~ now().strftime('%Y%m%d_%H%M%S') ~ '_' ~ snapshot_random_suffix ~ sanitized_extension }}
+        {{ sanitized_prefix ~ now().strftime('%Y%m%d%H%M%S%f') ~ '_' ~ snapshot_random_suffix ~ sanitized_extension }}
       snapshot_full_path: >-
-        {{ snapshot_directory_with_date ~ '/' ~ snapshot_filename }}
+        {{ snapshot_directory_normalized ~ '/' ~ snapshot_filename }}
       returned_image_path: >-
         {% set prefix = '/media/' %}
         {% if snapshot_full_path.startswith(prefix) %}
@@ -234,35 +200,13 @@ sequence:
         {% else %}
           {{ snapshot_full_path }}
         {% endif %}
-  
-  # Tạo thư mục nếu chưa tồn tại
-  - alias: Create directory if not exists
-    service: shell_command.create_directory
-    data:
-      path: "{{ snapshot_directory_with_date }}"
-  
-  # Debug thông tin cuối cùng
-  - service: system_log.write
-    data:
-      level: info
-      message: >-
-        Final execution: 
-        Camera entity: {{ camera_entity_id }}
-        Full path: {{ snapshot_full_path }}
-        Date folder: {{ today_folder }}
-
   - action: camera.snapshot
     target:
       entity_id: "{{ camera_entity_id }}"
     data:
       filename: "{{ snapshot_full_path }}"
-  
   - variables:
       response:
-        success: true
         image_path: "{{ returned_image_path }}"
-        camera: "{{ camera_entity_id }}"
-        message: "Đã chụp ảnh từ camera {{ camera_name }} thành công"
-  
-  - stop: "Snapshot captured successfully"
+  - stop: ""
     response_variable: response
