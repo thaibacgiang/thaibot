@@ -1,17 +1,24 @@
 blueprint:
-  name: Voice - Smart Camera AI Analyzer
-  author: Thai
+  name: Voice - Smart Camera AI Analyzer (Auto)
+  author: benbap
   description: 'Smart AI-powered camera analysis script (auto)
 
     - Không cần cấu hình danh sách camera thủ công
+
     - Tự lấy toàn bộ camera thật trong Home Assistant
+
     - Ưu tiên match friendly_name
+
     - Nếu không khớp thì match theo sensor aliases (giống blueprint Capture Camera
     Snapshot)
-    - Nếu vẫn không khớp thì đoán theo từ khóa với độ ưu tiên cao hơn
+
+    - Nếu vẫn không khớp thì đoán theo từ khóa ("phòng khách", "ban công", "cửa")
+
     - Trả lời tiếng Việt, prompt tiếng Anh
+
     - Hỗ trợ structure (overview, cameras_with_people, cameras_no_people, cameras_error,
     summary)
+
     '
   domain: script
   homeassistant:
@@ -68,31 +75,31 @@ blueprint:
             or MULTIPLE cameras.\n- You MUST base your answer ONLY on the attached
             media.\n- You MUST answer IN VIETNAMESE with proper diacritics.\n\nUSER
             QUESTION:\n\"{user_question}\"\n\nAVAILABLE CAMERAS:\n{camera_list}\n\n###
-            MODES\n1. DESCRIBE MODE (when user says \"có những gì\", \"thấy gì\", \"bên
-            trong có gì\")\n   - Describe EVERYTHING visible in the frame: people,
+            MODES\n1. DESCRIBE MODE (when user says “có những gì”, “thấy gì”, “bên
+            trong có gì”)\n   - Describe EVERYTHING visible in the frame: people,
             pets (cat/dog), vehicles, objects, doors, background, lighting.\n   -
             Do NOT limit to people.\n   - Output should be short, clear, natural Vietnamese.\n2.
-            DETECTION MODE (when user says \"có người không\", \"có mèo không\", \"có ai
-            không\")\n   - Focus on target the user asked (person/pet).\n   - If not
-            seen → say clearly \"Không thấy …\".\n   - Keep it short for TTS.\n3. MULTI-CAMERA
-            MODE (when user says \"camera nào\", \"tất cả camera\", \"kiểm tra tất cả\")\n
+            DETECTION MODE (when user says “có người không”, “có mèo không”, “có ai
+            không”)\n   - Focus on target the user asked (person/pet).\n   - If not
+            seen → say clearly “Không thấy …”.\n   - Keep it short for TTS.\n3. MULTI-CAMERA
+            MODE (when user says “camera nào”, “tất cả camera”, “kiểm tra tất cả”)\n
             \  - You will receive MULTIPLE camera attachments.\n   - You MUST return
             structured data:\n     * overview: short description of all cameras\n
             \    * cameras_with_people: cameras where you SEE people\n     * cameras_no_people:
             cameras where you see NO people\n     * cameras_error: cameras dark/blocked/offline\n
             \    * summary: ONE Vietnamese sentence ≤ 120 chars for TTS\nDETECTION
-            RULES:\n- \"Có người\" = any visible human.\n- If user asked about pets,
+            RULES:\n- “Có người” = any visible human.\n- If user asked about pets,
             prioritize cats/dogs over people.\n- If the frame is too dark/blurred
             → say so, do not guess.\n- Do NOT describe fixed walls/furniture unless
             needed for location.\nOUTPUT RULES:\n- Always in Vietnamese.\n- If structure
             is provided, fill ALL required fields.\n- No Markdown, no code blocks.\n-
             Do NOT invent unseen cameras or content.\nSUMMARY FIELD:\n- One short
             Vietnamese sentence\n"
-  source_url: https://github.com/thaibacgiang/thaibot/blob/main/Voice_Smart_Camera_AI_Analyzer.yaml
+  source_url: https://raw.githubusercontent.com/TriTue2011/Blueprint/main/voice_camera_ai_analyzer.yaml
 mode: parallel
 max_exceeded: silent
 variables:
-  version: 20251031_improved_camera_matching
+  version: 20251031_auto_alias_nocamselect
 fields:
   instructions:
     name: Camera Question
@@ -117,228 +124,64 @@ sequence:
   - stop: Missing question
     response_variable: response
 - variables:
-    all_cameras: '{{ states.camera | map(attribute=''entity_id'') | list }}'
-    camera_list_text: "{% set ns = namespace(list=[]) %} {% for cam in all_cameras %}\n  {% set name = state_attr(cam, 'friendly_name') or cam %}\n  {% set ns.list = ns.list + ['- ' ~ name ~ ' (' ~ cam ~ ')'] %}\n{% endfor %} {{ ns.list | join('\\n') }}\n"
+    all_cameras: '{% set cams = states.camera | map(attribute=''entity_id'') | list
+      %} {{ cams }}
+
+      '
+    camera_list_text: "{% set ns = namespace(list=[]) %} {% for cam in all_cameras
+      %}\n  {% set name = state_attr(cam, 'friendly_name') or cam %}\n  {% set ns.list
+      = ns.list + ['- ' ~ name ~ ' (' ~ cam ~ ')'] %}\n{% endfor %} {{ ns.list | join('\\n')
+      }}\n"
     user_question_lc: '{{ user_question | lower }}'
 - variables:
-    # Tìm kiếm chính xác hơn - ưu tiên từ khóa cụ thể
-    matched_camera_from_friendly: >-
-      {% set q = user_question | trim %}
-      {% set ql = user_question_lc %}
-      {% set found = '' %}
-      {% set exact_matches = [] %}
-      {% set partial_matches = [] %}
-      
-      {% for cam in all_cameras %}
-        {% set fn = (state_attr(cam, 'friendly_name') or '') | trim %}
-        {% set fnl = fn | lower %}
-        
-        {# Ưu tiên 1: Tên chính xác hoàn toàn #}
-        {% if fn and fnl == ql %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {# Ưu tiên 2: Từ khóa chính xác trong tên #}
-        {% elif 'phòng master' in ql and 'phòng master' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'phòng ngủ master' in ql and 'phòng ngủ master' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'nhà xe' in ql and 'nhà xe' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'phòng khách' in ql and 'phòng khách' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'ban công' in ql and 'ban công' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'cửa trước' in ql and 'cửa trước' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {% elif 'cửa sau' in ql and 'cửa sau' in fnl %}
-          {% set exact_matches = exact_matches + [cam] %}
-        {# Ưu tiên 3: Từ khóa chứa trong tên #}
-        {% elif fn and ql in fnl %}
-          {% set partial_matches = partial_matches + [cam] %}
-        {% endif %}
-      {% endfor %}
-      
-      {% if exact_matches | length > 0 %}
-        {{ exact_matches[0] }}
-      {% elif partial_matches | length > 0 %}
-        {{ partial_matches[0] }}
-      {% else %}
-        {{ '' }}
-      {% endif %}
-
-    matched_camera_from_alias: >-
-      {% set entities = state_attr(entity_aliases, 'entities') | default([]) %}
-      {% set ql = user_question_lc %}
-      {% set found = '' %}
-      {% set exact_alias_matches = [] %}
-      {% set partial_alias_matches = [] %}
-      
-      {% for item in entities %}
-        {% set eid = item.entity_id %}
-        {% set als = item.aliases | default([]) %}
-        {% if 'camera.' in eid %}
-          {% for a in als %}
-            {% set al = a | lower %}
-            {% if al == ql %}
-              {% set exact_alias_matches = exact_alias_matches + [eid] %}
-            {% elif ql in al %}
-              {% set partial_alias_matches = partial_alias_matches + [eid] %}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-      {% endfor %}
-      
-      {% if exact_alias_matches | length > 0 %}
-        {{ exact_alias_matches[0] }}
-      {% elif partial_alias_matches | length > 0 %}
-        {{ partial_alias_matches[0] }}
-      {% else %}
-        {{ '' }}
-      {% endif %}
-
-    # Tìm kiếm thông minh hơn với từ khóa cụ thể
-    guessed_camera_smart: >-
-      {% set ql = user_question_lc %}
-      {% set found = '' %}
-      {% set priority_matches = [] %}
-      {% set normal_matches = [] %}
-      
-      {# Từ khóa ưu tiên cao - phải khớp chính xác #}
-      {% if 'phòng master' in ql or 'phòng ngủ master' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'master' in fn or 'phòng master' in fn or 'phòng ngủ master' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {% elif 'nhà xe' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'nhà xe' in fn or 'garage' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {% elif 'phòng khách' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'phòng khách' in fn or 'living room' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {% elif 'ban công' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'ban công' in fn or 'balcony' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {% elif 'cửa trước' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'cửa trước' in fn or 'front door' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {% elif 'cửa sau' in ql %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if 'cửa sau' in fn or 'back door' in fn %}
-            {% set priority_matches = priority_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      
-      {# Tìm kiếm chung #}
-      {% else %}
-        {% for cam in all_cameras %}
-          {% set fn = (state_attr(cam, 'friendly_name') | default('')) | lower %}
-          {% if ql in fn %}
-            {% set normal_matches = normal_matches + [cam] %}
-          {% endif %}
-        {% endfor %}
-      {% endif %}
-      
-      {% if priority_matches | length > 0 %}
-        {{ priority_matches[0] }}
-      {% elif normal_matches | length > 0 %}
-        {{ normal_matches[0] }}
-      {% else %}
-        {{ '' }}
-      {% endif %}
-
-    fallback_camera: >-
-      {% if all_cameras | length > 0 %}
-        {{ all_cameras[0] }}
-      {% else %}
-        {{ '' }}
-      {% endif %}
-
-    final_single_camera: >-
-      {% if matched_camera_from_friendly %}
-        {{ matched_camera_from_friendly }}
-      {% elif matched_camera_from_alias %}
-        {{ matched_camera_from_alias }}
-      {% elif guessed_camera_smart %}
-        {{ guessed_camera_smart }}
-      {% else %}
-        {{ fallback_camera }}
-      {% endif %}
-
-    use_single_camera: >-
-      {% set q = user_question_lc %}
-      {% if 'tất cả' in q
-          or 'all camera' in q
-          or 'camera nào' in q
-          or 'những camera' in q
-          or 'các camera' in q
-          or 'which cameras' in q
-          or 'check all' in q
-          or 'mọi camera' in q %}
-        false
-      {% else %}
-        true
-      {% endif %}
+    matched_camera_from_friendly: "{% set q = user_question | trim %} {% set found
+      = '' %} {% for cam in all_cameras %}\n  {% set fn = (state_attr(cam, 'friendly_name')
+      or '') | trim %}\n  {% if fn and (fn | lower) == (q | lower) %}\n    {% set
+      found = cam %}\n  {% elif fn and (q | lower) in (fn | lower) %}\n    {% if not
+      found %}\n      {% set found = cam %}\n    {% endif %}\n  {% endif %}\n{% endfor
+      %} {{ found }}\n"
+    matched_camera_from_alias: "{% set entities = state_attr(entity_aliases, 'entities')
+      | default([]) %} {% set ql = user_question_lc %} {% set found = '' %} {% for
+      item in entities %}\n  {% set eid = item.entity_id %}\n  {% set als = item.aliases
+      | default([]) %}\n  {% if 'camera.' in eid %}\n    {% for a in als %}\n      {%
+      if (a | lower) == ql or (ql in (a | lower)) %}\n        {% set found = eid %}\n
+      \     {% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {{ found }}\n"
+    guessed_camera_hardcode: "{% if 'phòng khách' in user_question_lc %}\n  {% for
+      cam in all_cameras %}\n    {% if 'phòng khách' in (state_attr(cam, 'friendly_name')
+      | default('') | lower) %}\n      {{ cam }}\n    {% endif %}\n  {% endfor %}\n{%
+      elif 'ban công' in user_question_lc %}\n  {% for cam in all_cameras %}\n    {%
+      if 'ban công' in (state_attr(cam, 'friendly_name') | default('') | lower) %}\n
+      \     {{ cam }}\n    {% endif %}\n  {% endfor %}\n{% elif 'cửa' in user_question_lc
+      %}\n  {% for cam in all_cameras %}\n    {% if 'cửa' in (state_attr(cam, 'friendly_name')
+      | default('') | lower) %}\n      {{ cam }}\n    {% endif %}\n  {% endfor %}\n{%
+      else %}\n  {{ '' }}\n{% endif %}\n"
+    fallback_camera: "{% if all_cameras | length > 0 %}\n  {{ all_cameras[0] }}\n{%
+      else %}\n  {{ '' }}\n{% endif %}\n"
+    final_single_camera: "{% if matched_camera_from_friendly %}\n  {{ matched_camera_from_friendly
+      }}\n{% elif matched_camera_from_alias %}\n  {{ matched_camera_from_alias }}\n{%
+      elif guessed_camera_hardcode %}\n  {{ guessed_camera_hardcode }}\n{% else %}\n
+      \ {{ fallback_camera }}\n{% endif %}\n"
+    use_single_camera: "{% set q = user_question_lc %} {% if 'tất cả' in q\n      or
+      'all camera' in q\n      or 'camera nào' in q\n      or 'những camera' in q\n
+      \     or 'các camera' in q\n      or 'which cameras' in q\n      or 'check all'
+      in q %}\n  false\n{% else %}\n  true\n{% endif %}\n"
 - variables:
-    single_attachment: >-
-      {% if final_single_camera %}
-        {
-          "media_content_id": "media-source://camera/{{ final_single_camera }}",
-          "media_content_type": "application/vnd.apple.mpegurl",
-          "metadata": {
-            "title": "{{ state_attr(final_single_camera, 'friendly_name') or final_single_camera }}",
-            "thumbnail": "/api/camera_proxy/{{ final_single_camera }}",
-            "media_class": "video"
-          }
-        }
-      {% else %}
-        {}
-      {% endif %}
-
-    all_attachments: >-
-      {% set ns = namespace(items=[]) %}
-      {% for cam in all_cameras %}
-        {% if states(cam) is not none %}
-          {% set name = state_attr(cam, 'friendly_name') or cam %}
-          {% set item = {
-            'media_content_id': 'media-source://camera/' ~ cam,
-            'media_content_type': 'application/vnd.apple.mpegurl',
-            'metadata': {
-              'title': name,
-              'thumbnail': '/api/camera_proxy/' ~ cam,
-              'media_class': 'video'
-            }
-          } %}
-          {% set ns.items = ns.items + [item] %}
-        {% endif %}
-      {% endfor %}
-      {{ ns.items }}
-
+    single_attachment: "{\n  \"media_content_id\": \"media-source://camera/{{ final_single_camera
+      }}\",\n  \"media_content_type\": \"application/vnd.apple.mpegurl\",\n  \"metadata\":
+      {\n    \"title\": \"{{ state_attr(final_single_camera, 'friendly_name') or final_single_camera
+      }}\",\n    \"thumbnail\": \"/api/camera_proxy/{{ final_single_camera }}\",\n
+      \   \"media_class\": \"video\"\n  }\n}\n"
+    all_attachments: "{% set ns = namespace(items=[]) %} {% for cam in all_cameras
+      %}\n  {% if states(cam) is not none %}\n    {% set name = state_attr(cam, 'friendly_name')
+      or cam %}\n    {% set item = {\n      'media_content_id': 'media-source://camera/'
+      ~ cam,\n      'media_content_type': 'application/vnd.apple.mpegurl',\n      'metadata':
+      {\n        'title': name,\n        'thumbnail': '/api/camera_proxy/' ~ cam,\n
+      \       'media_class': 'video'\n      }\n    } %}\n    {% set ns.items = ns.items
+      + [item] %}\n  {% endif %}\n{% endfor %} {{ ns.items }}\n"
     camera_count: '{{ all_cameras | length }}'
 - variables:
-    final_prompt: "{{ system_prompt\n   | replace('{camera_list}', camera_list_text)\n   | replace('{user_question}', user_question) }}\n"
+    final_prompt: "{{ system_prompt\n   | replace('{camera_list}', camera_list_text)\n
+      \  | replace('{user_question}', user_question) }}\n"
 - choose:
   - conditions:
     - condition: template
@@ -348,12 +191,8 @@ sequence:
       data:
         task_name: Smart Camera Analysis
         instructions: '{{ final_prompt }}'
-        attachments: >-
-          {% if use_single_camera and final_single_camera %}
-            {{ [single_attachment] }}
-          {% else %}
-            {{ all_attachments }}
-          {% endif %}
+        attachments: "{% if use_single_camera %}\n  {{ [single_attachment] }}\n{%
+          else %}\n  {{ all_attachments }}\n{% endif %}\n"
         structure:
           overview:
             description: Short status of all cameras
@@ -390,12 +229,8 @@ sequence:
         entity_id: '{{ ai_task_entity }}'
         task_name: Smart Camera Analysis
         instructions: '{{ final_prompt }}'
-        attachments: >-
-          {% if use_single_camera and final_single_camera %}
-            {{ [single_attachment] }}
-          {% else %}
-            {{ all_attachments }}
-          {% endif %}
+        attachments: "{% if use_single_camera %}\n  {{ [single_attachment] }}\n{%
+          else %}\n  {{ all_attachments }}\n{% endif %}\n"
         structure:
           overview:
             description: Short status of all cameras
@@ -425,13 +260,12 @@ sequence:
       response_variable: ai_result
 - variables:
     response:
-      mode: '{{ "single" if use_single_camera else "multi" }}'
+      mode: '{{ ''single'' if use_single_camera else ''multi'' }}'
       camera_count: '{{ camera_count }}'
       selected_camera: '{{ final_single_camera }}'
-      camera_name: '{{ state_attr(final_single_camera, "friendly_name") if final_single_camera else "" }}'
       matched_camera_from_friendly: '{{ matched_camera_from_friendly }}'
       matched_camera_from_alias: '{{ matched_camera_from_alias }}'
-      guessed_camera_smart: '{{ guessed_camera_smart }}'
+      guessed_camera_hardcode: '{{ guessed_camera_hardcode }}'
       data: '{{ ai_result.data }}'
 - stop: ''
   response_variable: response
