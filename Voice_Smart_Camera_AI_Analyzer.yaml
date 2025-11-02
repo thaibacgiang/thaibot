@@ -1,6 +1,6 @@
 blueprint:
-  name: Voice - Smart Camera AI Analyzer (Auto)
-  author: benbap
+  name: Voice - Smart Camera AI Analyzer
+  author: benbap - thai
   description: 'Smart AI-powered camera analysis script (auto)
 
     - Không cần cấu hình danh sách camera thủ công
@@ -95,7 +95,7 @@ blueprint:
             is provided, fill ALL required fields.\n- No Markdown, no code blocks.\n-
             Do NOT invent unseen cameras or content.\nSUMMARY FIELD:\n- One short
             Vietnamese sentence\n"
-  source_url: https://raw.githubusercontent.com/TriTue2011/Blueprint/main/voice_camera_ai_analyzer.yaml
+  source_url: https://github.com/thaibacgiang/thaibot/blob/main/Voice_Smart_Camera_AI_Analyzer.yaml
 mode: parallel
 max_exceeded: silent
 variables:
