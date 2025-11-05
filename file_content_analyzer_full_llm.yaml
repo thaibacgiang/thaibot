@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: luuquangvu Thai FIX
+  author: luuquangvu
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -496,8 +496,8 @@ sequence:
           - stop: ''
             response_variable: response
 
-  # File path processing
-  - else:
+    # File path processing
+    else:
       - if:
           - condition: template
             value_template: "{{ not media_path.startswith('/') and not 'media-source://' in media_path }}"
