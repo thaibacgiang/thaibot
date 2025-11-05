@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: Thaidv
+  author: ThaidvFIX
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -361,14 +361,14 @@ sequence:
                           instructions: '{{ single_prompt }}'
                           attachments: '{{ attachments }}'
                         response_variable: ai_result
-                  default:
-                    - action: ai_task.generate_data
-                      data:
-                        entity_id: '{{ ai_task_entity }}'
-                        task_name: Analyze {{ camera_name }}
-                        instructions: '{{ single_prompt }}'
-                        attachments: '{{ attachments }}'
-                      response_variable: ai_result
+                default:
+                  - action: ai_task.generate_data
+                    data:
+                      entity_id: '{{ ai_task_entity }}'
+                      task_name: Analyze {{ camera_name }}
+                      instructions: '{{ single_prompt }}'
+                      attachments: '{{ attachments }}'
+                    response_variable: ai_result
 
               - variables:
                   response:
@@ -433,14 +433,14 @@ sequence:
                                 instructions: '{{ analysis_prompt }}'
                                 attachments: '{{ camera_attachment }}'
                               response_variable: ai_single_result
-                        default:
-                          - action: ai_task.generate_data
-                            data:
-                              entity_id: '{{ ai_task_entity }}'
-                              task_name: Analyze {{ camera_name }}
-                              instructions: '{{ analysis_prompt }}'
-                              attachments: '{{ camera_attachment }}'
-                            response_variable: ai_single_result
+                      default:
+                        - action: ai_task.generate_data
+                          data:
+                            entity_id: '{{ ai_task_entity }}'
+                            task_name: Analyze {{ camera_name }}
+                            instructions: '{{ analysis_prompt }}'
+                            attachments: '{{ camera_attachment }}'
+                          response_variable: ai_single_result
                     - variables:
                         camera_results: >
                           {% set results = camera_results %} 
@@ -484,13 +484,13 @@ sequence:
                           task_name: Summary
                           instructions: '{{ summary_prompt }}'
                         response_variable: ai_summary_result
-                  default:
-                    - action: ai_task.generate_data
-                      data:
-                        entity_id: '{{ ai_task_entity }}'
-                        task_name: Summary
-                        instructions: '{{ summary_prompt }}'
-                      response_variable: ai_summary_result
+                default:
+                  - action: ai_task.generate_data
+                    data:
+                      entity_id: '{{ ai_task_entity }}'
+                      task_name: Summary
+                      instructions: '{{ summary_prompt }}'
+                    response_variable: ai_summary_result
 
               - variables:
                   response:
@@ -531,14 +531,14 @@ sequence:
                   instructions: "{{ instructions }}"
                   attachments: "{{ attachments }}"
                 response_variable: result
-          default:
-            - action: ai_task.generate_data
-              data:
-                entity_id: "{{ ai_task_entity }}"
-                task_name: Analyze content from file
-                instructions: "{{ instructions }}"
-                attachments: "{{ attachments }}"
-              response_variable: result
+        default:
+          - action: ai_task.generate_data
+            data:
+              entity_id: "{{ ai_task_entity }}"
+              task_name: Analyze content from file
+              instructions: "{{ instructions }}"
+              attachments: "{{ attachments }}"
+            response_variable: result
 
       - variables:
           response:
