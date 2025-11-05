@@ -1,8 +1,8 @@
 blueprint:
   name: Voice - File Content Analyzer
-  author: thaidv
+  author: Thaidv
   description: >-
-    # Tool designed to analyze and extract all types of information from media files
+    # Tool designed to analyze and extract all types of information from media and document files
 
     ## Blueprint Setup
 
@@ -38,14 +38,19 @@ blueprint:
 
     ```
 
+    ### Optional
+
+    * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
+
     ### Note
 
     * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to extract data from a media or document file.
 
-    * Expose any camera entities you want to use through Assist.
+    * Expose any camera entities you want to use through Assist, and Assist will be able to "see" whenever you ask.
 
     * Make sure to expose the script to Assist after the script has been saved.
 
+    * Do not alter the default script name.
   domain: script
   homeassistant:
     min_version: 2025.8.0
@@ -76,6 +81,17 @@ blueprint:
               filter:
                 domain: ai_task
           default:
+        delay_between_cameras:
+          name: Delay Between Cameras (seconds)
+          description: Only used when analyzing multiple cameras
+          selector:
+            number:
+              min: 0.0
+              max: 10.0
+              step: 0.5
+              unit_of_measurement: s
+              mode: slider
+          default: 1
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -105,7 +121,7 @@ blueprint:
 
             Always specify the media source.
 
-            It must be one of the following values: 'camera' for a camera entity, 'path' for local files, or 'ai_task' for AI generated images.
+            It must be one of the following values: 'camera' for a camera entity, or 'path' for other types.
         media_path_prompt:
           name: Media Path Prompt
           description: The prompt which will be used for the LLM can provide the media path for the query.
@@ -115,7 +131,7 @@ blueprint:
           default: >-
             This argument is mandatory and must always be provided.
 
-            Always specify either the relative path of the media, the camera entity name, or AI Task image path.
+            Always specify either the relative path of the media or the camera entity name.
         mime_type_prompt:
           name: MIME Type Prompt
           description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
@@ -128,11 +144,10 @@ blueprint:
             Always specify the MIME type of the media.
 
             If the media source is 'camera', the MIME type must be set to 'image/jpeg'.
-            If the media source is 'ai_task', specify the appropriate MIME type like 'image/jpeg', 'image/png', etc.
 mode: parallel
 max_exceeded: silent
 variables:
-  version: 20251102
+  version: 20250923
 fields:
   instructions:
     name: Instructions
@@ -149,7 +164,6 @@ fields:
         options:
           - camera
           - path
-          - ai_task
     required: true
   media_path:
     name: Media Path
@@ -167,124 +181,368 @@ sequence:
   - variables:
       entity_aliases: !input entity_aliases
       ai_task_entity: !input ai_task_entity
+      delay_between_cameras: !input delay_between_cameras
       instructions: "{{ instructions | default('') | trim }}"
       media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
-      temp_file_path: ""
+      user_question: "{{ instructions | default('') | trim }}"
+
+  # Check for missing inputs
   - if:
-      - alias: Check if variables were set correctly
-        condition: template
-        value_template: "{{ not instructions }}"
+      - condition: template
+        value_template: "{{ not user_question }}"
     then:
-      - alias: Set variable for error message
-        variables:
+      - variables:
           response:
-            error: >-
-              Unable to extract data because instructions is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
-          Unable to extract data because instructions is missing or incorrect.
-        response_variable: response
-  - if:
-      - alias: Check if variables were set correctly
-        condition: template
-        value_template: "{{ not media_source in ['camera', 'path', 'ai_task'] }}"
-    then:
-      - alias: Set variable for error message
-        variables:
-          response:
-            error: >-
-              Unable to extract data because media source is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
-          Unable to extract data because media source is missing or incorrect.
+            error: Please enter a question
+      - stop: Missing question
         response_variable: response
 
-  # Xử lý Camera - chụp ảnh trực tiếp và lưu file tạm
+  - if:
+      - condition: template
+        value_template: "{{ not media_source in ['camera', 'path'] }}"
+    then:
+      - variables:
+          response:
+            error: Unable to extract data because media source is missing or incorrect.
+      - stop: Unable to extract data because media source is missing or incorrect.
+        response_variable: response
+
+  - if:
+      - condition: template
+        value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
+    then:
+      - variables:
+          response:
+            error: Unable to extract data because MIME type is missing or incorrect.
+      - stop: Unable to extract data because MIME type is missing or incorrect.
+        response_variable: response
+
+  # Camera processing logic from the reference file
   - if:
       - condition: template
         value_template: "{{ media_source == 'camera' }}"
     then:
       - variables:
-          filename: "camera_snapshot_{{ now().strftime('%Y%m%d_%H%M%S') }}.jpg"
-          temp_file_path: "/config/www/{{ filename }}"
-      
-      # Tìm camera entity ID
+          user_question_lc: "{{ user_question | lower }}"
+          all_cameras: >
+            {% set cams = states.camera 
+               | selectattr('state', 'in', ['idle', 'streaming', 'recording'])
+               | map(attribute='entity_id') 
+               | list %}
+            {{ cams }}
+
       - variables:
-          camera_id: >-
-            {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
-            {{ states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | map(attribute='entity_id') | first }}
-            {% else -%}
-            {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
-            {% endif -%}
-      
-      - alias: Capture snapshot from camera
-        service: camera.snapshot
-        data:
-          entity_id: "{{ camera_id }}"
-          filename: "{{ temp_file_path }}"
-      
-      - delay:
-          seconds: 2
-      
+          is_multi_camera_request: >
+            {% set q = user_question_lc %} 
+            {{ 'tất cả' in q
+               or 'all camera' in q
+               or 'camera nào' in q
+               or 'những camera' in q
+               or 'các camera' in q
+               or 'which cameras' in q
+               or 'check all' in q
+               or 'toàn bộ' in q }}
+
+          matched_camera_from_friendly: >
+            {% set q = media_path | trim %} 
+            {% set found = '' %} 
+            {% for cam in all_cameras %}
+              {% set fn = (state_attr(cam, 'friendly_name') or '') | trim %}
+              {% if fn and (fn | lower) == (q | lower) %}
+                {% set found = cam %}
+              {% elif fn and (q | lower) in (fn | lower) %}
+                {% if not found %}
+                  {% set found = cam %}
+                {% endif %}
+              {% endif %}
+            {% endfor %} 
+            {{ found }}
+
+          matched_camera_from_alias: >
+            {% set entities = state_attr(entity_aliases, 'entities') | default([]) %} 
+            {% set ql = media_path | lower %} 
+            {% set found = '' %} 
+            {% for item in entities %}
+              {% set eid = item.entity_id %}
+              {% set als = item.aliases | default([]) %}
+              {% if 'camera.' in eid %}
+                {% for a in als %}
+                  {% if (a | lower) == ql or (ql in (a | lower)) %}
+                    {% set found = eid %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            {% endfor %} 
+            {{ found }}
+
+          guessed_camera: >
+            {% if 'phòng khách' in user_question_lc %}
+              {% for cam in all_cameras %}
+                {% if 'phòng khách' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
+                  {{ cam }}
+                {% endif %}
+              {% endfor %}
+            {% elif 'ban công' in user_question_lc %}
+              {% for cam in all_cameras %}
+                {% if 'ban công' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
+                  {{ cam }}
+                {% endif %}
+              {% endfor %}
+            {% elif 'cửa' in user_question_lc %}
+              {% for cam in all_cameras %}
+                {% if 'cửa' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
+                  {{ cam }}
+                {% endif %}
+              {% endfor %}
+            {% else %}
+              {{ '' }}
+            {% endif %}
+
+          final_camera: >
+            {% if matched_camera_from_friendly %}
+              {{ matched_camera_from_friendly }}
+            {% elif matched_camera_from_alias %}
+              {{ matched_camera_from_alias }}
+            {% elif guessed_camera %}
+              {{ guessed_camera }}
+            {% else %}
+              {{ '' }}
+            {% endif %}
+
+          use_mode: >
+            {% if is_multi_camera_request %}
+              multi
+            {% elif final_camera %}
+              single
+            {% else %}
+              multi
+            {% endif %}
+
+      # Single camera analysis
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: '{{ use_mode == "single" }}'
+            sequence:
+              - variables:
+                  camera_name: '{{ state_attr(final_camera, "friendly_name") or final_camera }}'
+                  single_prompt: >
+                    You are analyzing a single camera frame.
+
+                    CAMERA: {{ camera_name }} 
+                    USER QUESTION: "{{ user_question }}"
+
+                    INSTRUCTIONS: 
+                    - Answer in VIETNAMESE with proper diacritics 
+                    - Be conversational and natural (2-3 sentences max) 
+                    - If asked about people: "Có người" or "Không có người" 
+                    - If asked to describe: mention main visible elements 
+                    - If dark/blocked: "Camera bị tối/che khuất"
+
+                    Answer directly, no extra formatting.
+
+                  attachments:
+                    - media_content_id: media-source://camera/{{ final_camera }}
+                      media_content_type: image/jpeg
+                      metadata:
+                        title: '{{ camera_name }}'
+                        media_class: image
+
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: '{{ not ai_task_entity }}'
+                    sequence:
+                      - action: ai_task.generate_data
+                        data:
+                          task_name: Analyze {{ camera_name }}
+                          instructions: '{{ single_prompt }}'
+                          attachments: '{{ attachments }}'
+                        response_variable: ai_result
+                  default:
+                    - action: ai_task.generate_data
+                      data:
+                        entity_id: '{{ ai_task_entity }}'
+                        task_name: Analyze {{ camera_name }}
+                        instructions: '{{ single_prompt }}'
+                        attachments: '{{ attachments }}'
+                      response_variable: ai_result
+
+              - variables:
+                  response:
+                    mode: single
+                    camera: '{{ final_camera }}'
+                    camera_name: '{{ camera_name }}'
+                    answer: '{{ ai_result.data if ai_result.data is defined else "Lỗi phân tích" }}'
+                    timestamp: '{{ now().isoformat() }}'
+
+              - stop: ''
+                response_variable: response
+
+          # Multi camera analysis
+          - conditions:
+              - condition: template
+                value_template: '{{ use_mode == "multi" }}'
+            sequence:
+              - if:
+                  - condition: template
+                    value_template: '{{ all_cameras | length == 0 }}'
+                then:
+                  - variables:
+                      response:
+                        error: Không tìm thấy camera nào
+                  - stop: No cameras
+                    response_variable: response
+
+              - variables:
+                  analysis_prompt: >
+                    Analyze this single camera frame.
+
+                    USER QUESTION: "{{ user_question }}"
+
+                    Answer in VIETNAMESE (1-2 sentences): 
+                    - People detection: "Có người" or "Không có người" 
+                    - Description: main objects/people/pets 
+                    - Issues: "Camera tối/che khuất" if applicable
+
+                  camera_results: []
+
+              - repeat:
+                  for_each: '{{ all_cameras }}'
+                  sequence:
+                    - variables:
+                        current_camera: '{{ repeat.item }}'
+                        camera_name: '{{ state_attr(repeat.item, "friendly_name") or repeat.item }}'
+                    - variables:
+                        camera_attachment:
+                          - media_content_id: media-source://camera/{{ current_camera }}
+                            media_content_type: image/jpeg
+                            metadata:
+                              title: '{{ camera_name }}'
+                              media_class: image
+                    - choose:
+                        - conditions:
+                            - condition: template
+                              value_template: '{{ not ai_task_entity }}'
+                          sequence:
+                            - action: ai_task.generate_data
+                              data:
+                                task_name: Analyze {{ camera_name }}
+                                instructions: '{{ analysis_prompt }}'
+                                attachments: '{{ camera_attachment }}'
+                              response_variable: ai_single_result
+                        default:
+                          - action: ai_task.generate_data
+                            data:
+                              entity_id: '{{ ai_task_entity }}'
+                              task_name: Analyze {{ camera_name }}
+                              instructions: '{{ analysis_prompt }}'
+                              attachments: '{{ camera_attachment }}'
+                            response_variable: ai_single_result
+                    - variables:
+                        camera_results: >
+                          {% set results = camera_results %} 
+                          {% set new_result = {
+                            'camera': current_camera,
+                            'camera_name': camera_name,
+                            'analysis': ai_single_result.data if ai_single_result.data is defined else 'Lỗi',
+                            'timestamp': now().isoformat()
+                          } %} 
+                          {{ results + [new_result] }}
+                    - if:
+                        - condition: template
+                          value_template: '{{ repeat.index < all_cameras | length }}'
+                      then:
+                        - delay:
+                            seconds: '{{ delay_between_cameras }}'
+
+              - variables:
+                  summary_prompt: >
+                    Summarize these camera analysis results in Vietnamese.
+
+                    USER QUESTION: "{{ user_question }}"
+
+                    RESULTS: 
+                    {% for result in camera_results %} 
+                    - {{ result.camera_name }}: {{ result.analysis }} 
+                    {% endfor %}
+
+                    Create a natural 2-4 sentence summary: 
+                    - If asked about people: list cameras WITH people, then WITHOUT 
+                    - If asked to describe: overview of what's visible 
+                    - Keep it conversational for voice assistant
+
+              - choose:
+                  - conditions:
+                      - condition: template
+                        value_template: '{{ not ai_task_entity }}'
+                    sequence:
+                      - action: ai_task.generate_data
+                        data:
+                          task_name: Summary
+                          instructions: '{{ summary_prompt }}'
+                        response_variable: ai_summary_result
+                  default:
+                    - action: ai_task.generate_data
+                      data:
+                        entity_id: '{{ ai_task_entity }}'
+                        task_name: Summary
+                        instructions: '{{ summary_prompt }}'
+                      response_variable: ai_summary_result
+
+              - variables:
+                  response:
+                    mode: multi
+                    camera_count: '{{ all_cameras | length }}'
+                    individual_results: '{{ camera_results }}'
+                    summary: '{{ ai_summary_result.data if ai_summary_result.data is defined else "Không tổng hợp được" }}'
+                    timestamp: '{{ now().isoformat() }}'
+
+              - stop: ''
+                response_variable: response
+
+  # File path processing
+  - else:
+      - if:
+          - condition: template
+            value_template: "{{ not media_path.startswith('/') and not 'media-source://' in media_path }}"
+        then:
+          - variables:
+              response:
+                error: Unable to extract data because media path is incorrect.
+          - stop: Unable to extract data because media path is incorrect.
+            response_variable: response
+
       - variables:
           attachments:
-            media_content_id: "media-source://media_source/local/{{ filename }}"
-            media_content_type: "image/jpeg"
+            - media_content_id: "{{ media_path if 'media-source://' in media_path else 'media-source://media_source/local/' + media_path }}"
+              media_content_type: "{{ mime_type }}"
 
-  # Xử lý AI Task images
-  - if:
-      - condition: template
-        value_template: "{{ media_source == 'ai_task' }}"
-    then:
+      - choose:
+          - conditions:
+              - condition: template
+                value_template: "{{ not ai_task_entity }}"
+            sequence:
+              - action: ai_task.generate_data
+                data:
+                  task_name: Analyze content from file
+                  instructions: "{{ instructions }}"
+                  attachments: "{{ attachments }}"
+                response_variable: result
+          default:
+            - action: ai_task.generate_data
+              data:
+                entity_id: "{{ ai_task_entity }}"
+                task_name: Analyze content from file
+                instructions: "{{ instructions }}"
+                attachments: "{{ attachments }}"
+              response_variable: result
+
       - variables:
-          attachments:
-            media_content_id: "media-source://ai_task/image/{{ media_path }}"
-            media_content_type: "{{ mime_type }}"
-  
-  # Xử lý path source (file local)
-  - if:
-      - condition: template
-        value_template: "{{ media_source == 'path' }}"
-    then:
-      - variables:
-          attachments:
-            media_content_id: "media-source://media_source/{{ media_path }}"
-            media_content_type: "{{ mime_type }}"
+          response:
+            data: "{{ result.data }}"
 
-  # Gọi AI Task để phân tích
-  - if:
-      - condition: template
-        value_template: "{{ not ai_task_entity }}"
-    then:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media entity
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-        response_variable: result
-    else:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media entity
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-          entity_id: "{{ ai_task_entity }}"
-        response_variable: result
-
-  # Xóa file tạm (chỉ cho camera)
-  - if:
-      - condition: template
-        value_template: "{{ temp_file_path and media_source == 'camera' }}"
-    then:
-      - alias: Delete temporary file
-        service: file.remove
-        data:
-          file: "{{ temp_file_path }}"
-
-  - variables:
-      response:
-        data: "{{ result.data }}"
-  - stop: ""
-    response_variable: response
+      - stop: ""
+        response_variable: response
