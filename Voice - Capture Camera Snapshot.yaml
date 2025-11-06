@@ -1,27 +1,26 @@
 blueprint:
-  name: Voice - Smart Camera Analyzer
-  author: Thaidv + optimized_by_chatgpt
+  name: Voice - Smart Camera Analyzer (Single + Sequential)
+  author: Thaidv_fixed + optimized_by_chatgpt
   description: >
-    Tự động phát hiện:
-    - Hỏi 1 camera → Phân tích trực tiếp
-    - Hỏi nhiều camera → Phân tích từng camera rồi tổng hợp
-    (Đã tối ưu tốc độ bằng snapshot Go2RTC)
+    Trả lời câu hỏi về camera:
+    - Nếu hỏi 1 camera → Phân tích trực tiếp
+    - Nếu hỏi nhiều camera → Phân tích từng camera rồi tổng hợp
+    Đã tối ưu tốc độ bằng snapshot Go2RTC (1-3 giây phản hồi).
   domain: script
   homeassistant:
     min_version: 2025.8.0
 
   input:
     entity_aliases_settings:
-      name: Settings for Entity Aliases
+      name: Entity Aliases Sensor
       icon: mdi:format-list-bulleted
       input:
         entity_aliases:
-          name: Entity Aliases
+          name: Entity Aliases Sensor
           selector:
             entity:
               filter:
-                - domain:
-                  - sensor
+                - domain: sensor
                   integration: template
           default:
 
@@ -31,22 +30,20 @@ blueprint:
       collapsed: true
       input:
         ai_task_entity:
-          name: AI Task Entity
+          name: AI Task Entity (nếu bỏ trống sẽ dùng mặc định hệ thống)
           selector:
             entity:
               filter:
-                - domain:
-                  - ai_task
+                - domain: ai_task
           default:
         delay_between_cameras:
-          name: Delay Between Cameras (seconds)
+          name: Delay Between Cameras (khi phân tích nhiều camera)
           selector:
             number:
               min: 0
-              max: 5
-              step: 0.5
+              max: 3
+              step: 0.2
               unit_of_measurement: s
-              mode: slider
           default: 0.5
 
 mode: parallel
@@ -55,196 +52,178 @@ max_exceeded: silent
 fields:
   instructions:
     name: Camera Question
-    description: Hỏi về camera (VD: Camera nhà xe có người không)
+    description: >
+      Ví dụ:
+      - Camera nhà xe có người không?
+      - Camera phòng khách đang thấy gì?
+      - Kiểm tra tất cả camera xem có ai không.
     selector:
       text:
         multiline: true
     required: true
 
 sequence:
-- variables:
-    entity_aliases: !input entity_aliases
-    ai_task_entity: !input ai_task_entity
-    delay_between_cameras: !input delay_between_cameras
-    user_question: "{{ instructions | default('') | trim }}"
+  - variables:
+      entity_aliases: !input entity_aliases
+      ai_task_entity: !input ai_task_entity
+      delay_between_cameras: !input delay_between_cameras
+      user_question: "{{ instructions | trim }}"
 
-- if:
-  - condition: template
-    value_template: "{{ not user_question }}"
-  then:
-  - stop: "Vui lòng nhập câu hỏi"
+  - if:
+      - condition: template
+        value_template: "{{ not user_question }}"
+    then:
+      - stop: "Vui lòng nói câu hỏi cho camera."
 
-- variables:
-    all_cameras: >
-      {% set cams = states.camera
-      | selectattr('state','in',['idle','streaming','recording'])
-      | map(attribute='entity_id') | list %}
-      {{ cams }}
+  - variables:
+      all_cameras: >
+        {% set cams = states.camera
+        | selectattr('state', 'in', ['idle','streaming','recording'])
+        | map(attribute='entity_id') | list %}
+        {{ cams }}
 
-    user_question_lc: "{{ user_question | lower }}"
+      user_question_lc: "{{ user_question | lower }}"
 
-- variables:
-    is_multi_camera_request: >
-      {% set q=user_question_lc %}
-      {{ 'tất cả' in q or 'toàn bộ' in q or 'all camera' in q or 'check all' in q }}
+  - variables:
+      is_multi_camera_request: >
+        {% set q=user_question_lc %}
+        {{ 'tất cả' in q or 'toàn bộ' in q or 'all camera' in q or 'check all' in q }}
 
-    matched_camera_from_friendly: >
-      {% set q = user_question_lc %}
-      {% for cam in all_cameras %}
-        {% set fn = (state_attr(cam,'friendly_name')|default('')|lower) %}
-        {% if q in fn %}
-          {{ cam }}
+      matched_camera_from_friendly: >
+        {% set q=user_question_lc %}
+        {% for cam in all_cameras %}
+        {% set fn=(state_attr(cam,'friendly_name')|default('')|lower) %}
+        {% if q in fn %}{{ cam }}{% endif %}
+        {% endfor %}
+
+      matched_camera_from_alias: >
+        {% set q=user_question_lc %}
+        {% set ents = state_attr(entity_aliases,'entities')|default([]) %}
+        {% for item in ents %}
+          {% if 'camera.' in item.entity_id %}
+            {% for a in item.aliases|default([]) %}
+              {% if q in (a|lower) %}
+                {{ item.entity_id }}
+              {% endif %}
+            {% endfor %}
+          {% endif %}
+        {% endfor %}
+
+      final_camera: >
+        {{ matched_camera_from_friendly or matched_camera_from_alias or '' }}
+
+      use_mode: >
+        {% if is_multi_camera_request %}multi
+        {% elif final_camera %}single
+        {% else %}multi
         {% endif %}
-      {% endfor %}
 
-    matched_camera_from_alias: >
-      {% set q = user_question_lc %}
-      {% set ents = state_attr(entity_aliases,'entities')|default([]) %}
-      {% for item in ents %}
-        {% if 'camera.' in item.entity_id %}
-          {% for a in item.aliases|default([]) %}
-            {% if q in (a|lower) %}
-              {{ item.entity_id }}
-            {% endif %}
-          {% endfor %}
-        {% endif %}
-      {% endfor %}
-
-    guessed_camera: >
-      {% for cam in all_cameras %}
-        {% if 'cửa' in user_question_lc and 'cửa' in (state_attr(cam,'friendly_name')|lower) %}
-          {{ cam }}
-        {% endif %}
-      {% endfor %}
-
-    final_camera: >
-      {{ matched_camera_from_friendly or matched_camera_from_alias or guessed_camera or '' }}
-
-    use_mode: >
-      {% if is_multi_camera_request %}multi
-      {% elif final_camera %}single
-      {% else %}multi
-      {% endif %}
-
-# ========================= #
-#   SINGLE CAMERA ANALYSIS   #
-# ========================= #
-- choose:
-  - conditions:
-    - condition: template
-      value_template: "{{ use_mode == 'single' }}"
-    sequence:
-    - variables:
-        camera_name: "{{ state_attr(final_camera,'friendly_name') or final_camera }}"
-
-        # ✅ Snapshot Go2RTC (siêu nhanh)
-        camera_attachment:
-          media_content_id: >-
-            http://192.168.1.23:1984/api/frame.jpeg?src={{ final_camera | replace('camera.','') }}
-          media_content_type: image/jpeg
-
-        single_prompt: >
-          Answer in Vietnamese.
-          Camera: {{ camera_name }}
-          Câu hỏi: "{{ user_question }}"
-          Trả lời tự nhiên 1-3 câu, nếu tối/che khuất => báo rõ.
-
-    - choose:
+  # ==== SINGLE CAMERA ====
+  - choose:
       - conditions:
-        - condition: template
-          value_template: "{{ not ai_task_entity }}"
+          - condition: template
+            value_template: "{{ use_mode == 'single' }}"
         sequence:
-        - action: ai_task.generate_data
-          data:
-            instructions: "{{ single_prompt }}"
-            attachments:
-              - "{{ camera_attachment }}"
-          response_variable: ai_result
-      default:
-      - action: ai_task.generate_data
-        data:
-          entity_id: "{{ ai_task_entity }}"
-          instructions: "{{ single_prompt }}"
-          attachments:
-            - "{{ camera_attachment }}"
-        response_variable: ai_result
+          - variables:
+              camera_name: "{{ state_attr(final_camera, 'friendly_name') or final_camera }}"
+              camera_attachment:
+                media_content_id: >-
+                  http://192.168.1.23:1984/api/frame.jpeg?src={{ final_camera | replace('camera.','') }}
+                media_content_type: image/jpeg
+              single_prompt: >
+                Trả lời tiếng Việt tự nhiên 1-3 câu. Nếu tối hoặc không rõ, hãy nói "Camera bị tối hoặc che khuất".
+                Câu hỏi: {{ user_question }}
+                Camera: {{ camera_name }}
 
-    - variables:
-        response:
-          mode: single
-          camera: "{{ final_camera }}"
-          answer: "{{ ai_result.data }}"
-          timestamp: "{{ now().isoformat() }}"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not ai_task_entity }}"
+                sequence:
+                  - action: ai_task.generate_data
+                    data:
+                      instructions: "{{ single_prompt }}"
+                      attachments:
+                        - "{{ camera_attachment }}"
+                    response_variable: ai_result
+            default:
+              - action: ai_task.generate_data
+                data:
+                  entity_id: "{{ ai_task_entity }}"
+                  instructions: "{{ single_prompt }}"
+                  attachments:
+                    - "{{ camera_attachment }}"
+                response_variable: ai_result
 
-    - stop: ""
-      response_variable: response
+          - variables:
+              response:
+                mode: single
+                answer: "{{ ai_result.data }}"
+                camera: "{{ camera_name }}"
+                timestamp: "{{ now().isoformat() }}"
 
-# ========================= #
-#   MULTI CAMERA ANALYSIS    #
-# ========================= #
-  - conditions:
-    - condition: template
-      value_template: "{{ use_mode == 'multi' }}"
-    sequence:
+          - stop: ""
+            response_variable: response
 
-    - variables:
-        camera_results: []
-
-    - repeat:
-        for_each: "{{ all_cameras }}"
+  # ==== MULTI CAMERA ====
+      - conditions:
+          - condition: template
+            value_template: "{{ use_mode == 'multi' }}"
         sequence:
-        - variables:
-            current_camera: "{{ repeat.item }}"
-            camera_name: "{{ state_attr(repeat.item,'friendly_name') or repeat.item }}"
+          - variables:
+              camera_results: []
 
-            # ✅ Snapshot Go2RTC cho từng camera
-            camera_attachment:
-              media_content_id: >-
-                http://192.168.1.23:1984/api/frame.jpeg?src={{ current_camera | replace('camera.','') }}
-              media_content_type: image/jpeg
+          - repeat:
+              for_each: "{{ all_cameras }}"
+              sequence:
+                - variables:
+                    current_camera: "{{ repeat.item }}"
+                    camera_name: "{{ state_attr(repeat.item,'friendly_name') or repeat.item }}"
+                    camera_attachment:
+                      media_content_id: >-
+                        http://192.168.1.23:1984/api/frame.jpeg?src={{ current_camera | replace('camera.','') }}
+                      media_content_type: image/jpeg
 
-        - choose:
-          - conditions:
-            - condition: template
-              value_template: "{{ not ai_task_entity }}"
-            sequence:
-            - action: ai_task.generate_data
-              data:
-                instructions: "{{ 'Mô tả camera: ' ~ camera_name }}"
-                attachments:
-                  - "{{ camera_attachment }}"
-              response_variable: ai_single_result
-          default:
-            - action: ai_task.generate_data
-              data:
-                entity_id: "{{ ai_task_entity }}"
-                instructions: "{{ 'Mô tả camera: ' ~ camera_name }}"
-                attachments:
-                  - "{{ camera_attachment }}"
-              response_variable: ai_single_result
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ not ai_task_entity }}"
+                      sequence:
+                        - action: ai_task.generate_data
+                          data:
+                            instructions: "Mô tả hình ảnh camera {{ camera_name }}:"
+                            attachments:
+                              - "{{ camera_attachment }}"
+                          response_variable: ai_single
+                    default:
+                      - action: ai_task.generate_data
+                        data:
+                          entity_id: "{{ ai_task_entity }}"
+                          instructions: "Mô tả hình ảnh camera {{ camera_name }}:"
+                          attachments:
+                            - "{{ camera_attachment }}"
+                        response_variable: ai_single
 
-        - variables:
-            camera_results: >
-              {{ camera_results + [ { "camera_name": camera_name,
-                                      "analysis": ai_single_result.data } ] }}
+                - variables:
+                    camera_results: >
+                      {{ camera_results + [ camera_name ~ ": " ~ (ai_single.data | default("Không phân tích được")) ] }}
 
-        - delay:
-            seconds: "{{ delay_between_cameras }}"
+                - delay:
+                    seconds: "{{ delay_between_cameras }}"
 
-    - action: ai_task.generate_data
-      data:
-        entity_id: "{{ ai_task_entity }}"
-        instructions: >
-          Tổng hợp kết quả các camera, trả lời 2-4 câu tiếng Việt tự nhiên.
-          {{ camera_results }}
-      response_variable: ai_summary
+          - action: ai_task.generate_data
+            data:
+              entity_id: "{{ ai_task_entity }}"
+              instructions: >
+                Tổng hợp các mô tả sau thành 2-4 câu tiếng Việt tự nhiên:
+                {{ camera_results | join("\n") }}
+            response_variable: summary
 
-    - variables:
-        response:
-          mode: multi
-          results: "{{ camera_results }}"
-          summary: "{{ ai_summary.data }}"
-          timestamp: "{{ now().isoformat() }}"
+          - variables:
+              response:
+                mode: multi
+                summary: "{{ summary.data }}"
+                timestamp: "{{ now().isoformat() }}"
 
-    - stop: ""
-      response_variable: response
+          - stop: ""
+            response_variable: response
