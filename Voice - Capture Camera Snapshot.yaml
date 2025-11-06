@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Smart Camera Analyzer
-  author: Thaidv
+  author: Thaidv1
   description: 'Tự động phát hiện:
 
     - Hỏi 1 camera → Trả lời trực tiếp
@@ -137,7 +137,7 @@ sequence:
           Answer directly, no extra formatting.'
         camera_attachment:
           media_content_id: >-
-            http://192.168.1.23:1984/api/frame.jpeg?src={{ final_camera | replace('camera.', '') }}
+            http://192.168.1.23:1984/api/frame.jpeg?src={{ state_attr(cam,'friendly_name') | lower | replace(' ','_') }}
           media_content_type: image/jpeg
           metadata:
             title: '{{ camera_name }}'
@@ -205,7 +205,7 @@ sequence:
         - variables:
             camera_attachment:
               media_content_id: >-
-                http://192.168.1.23:1984/api/frame.jpeg?src={{ current_camera | replace('camera.', '') }}
+                http://192.168.1.23:1984/api/frame.jpeg?src={{ state_attr(cam,'friendly_name') | lower | replace(' ','_') }}
               media_content_type: image/jpeg
               metadata:
                 title: '{{ camera_name }}'
