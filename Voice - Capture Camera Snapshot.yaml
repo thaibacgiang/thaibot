@@ -55,7 +55,7 @@ max_exceeded: silent
 fields:
   instructions:
     name: Camera Question
-    description: Hỏi về camera (VD: "Camera nhà xe có người không")
+    description: Hỏi về camera (VD: Camera nhà xe có người không)
     selector:
       text:
         multiline: true
