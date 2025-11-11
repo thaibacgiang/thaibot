@@ -1,6 +1,6 @@
 blueprint:
-  name: Voice - File Content Analyzer
-  author: luuquangvu
+  name: Voice - File Content Analyzer (Snapshot compatible, AI Task 2.5)
+  author: luuquangvu (mod by chatgpt)
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -54,6 +54,7 @@ blueprint:
   domain: script
   homeassistant:
     min_version: 2025.8.0
+
   input:
     entity_aliases_settings:
       name: Settings for Entity Aliases
@@ -67,6 +68,7 @@ blueprint:
               filter:
                 - domain: sensor
                   integration: template
+
     ai_task_settings:
       name: Settings for AI Task
       icon: mdi:robot-outline
@@ -81,6 +83,7 @@ blueprint:
               filter:
                 domain: ai_task
           default:
+
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -132,11 +135,13 @@ blueprint:
 
             Always specify the MIME type of the media.
 
-            If the media source is 'camera', the MIME type must be set to 'application/vnd.apple.mpegurl'.
+            If the media source is 'camera', the MIME type must be set to 'image/jpeg'.
+
 mode: parallel
 max_exceeded: silent
 variables:
-  version: 20250923
+  version: 20251111
+
 fields:
   instructions:
     name: Instructions
@@ -166,6 +171,7 @@ fields:
     selector:
       text:
     required: true
+
 sequence:
   - variables:
       entity_aliases: !input entity_aliases
@@ -174,86 +180,77 @@ sequence:
       media_source: "{{ media_source | default('') | trim }}"
       media_path: "{{ media_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
+
+  # Validate instructions
   - if:
-      - alias: Check if variables were set correctly
+      - alias: Check instructions
         condition: template
         value_template: "{{ not instructions }}"
     then:
-      - alias: Set variable for error message
-        variables:
+      - variables:
           response:
             error: >-
               Unable to extract data because instructions is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
+      - stop: >-
           Unable to extract data because instructions is missing or incorrect.
         response_variable: response
+
+  # Validate media_source
   - if:
-      - alias: Check if variables were set correctly
+      - alias: Check media_source
         condition: template
         value_template: "{{ not media_source in ['camera', 'path'] }}"
     then:
-      - alias: Set variable for error message
-        variables:
+      - variables:
           response:
             error: >-
               Unable to extract data because media source is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
+      - stop: >-
           Unable to extract data because media source is missing or incorrect.
         response_variable: response
+
+  # Validate generic MIME prefix
   - if:
-      - alias: Check if variables were set correctly
+      - alias: Check MIME prefix
         condition: template
         value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
     then:
-      - alias: Set variable for error message
-        variables:
+      - variables:
           response:
             error: >-
               Unable to extract data because MIME type is missing or incorrect.
-      - alias: Stop the script
-        stop: >-
+      - stop: >-
           Unable to extract data because MIME type is missing or incorrect.
         response_variable: response
+
+  # Branch: CAMERA -> use snapshot
   - if:
       - condition: template
         value_template: "{{ media_source == 'camera' }}"
     then:
+      # Validate camera exists (friendly_name or alias)
       - if:
-          - alias: Check if variables were set correctly
+          - alias: Validate camera path by friendly_name or alias
             condition: template
             value_template: >-
-              {% if not ((states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) or
-              (state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | list)) -%}
-              {{ true }}
-              {% else -%}
-              {{ false }}
-              {% endif -%}
+              {% set by_name = states.camera
+                 | selectattr('attributes.friendly_name', '==', media_path.strip())
+                 | list %}
+              {% set by_alias = (state_attr(entity_aliases, 'entities') | default([]))
+                 | selectattr('entity_id', 'match', 'camera\.')
+                 | selectattr('aliases', 'contains', media_path.strip())
+                 | list %}
+              {{ (by_name | length == 0) and (by_alias | length == 0) }}
         then:
-          - alias: Set variable for error message
-            variables:
+          - variables:
               response:
                 error: >-
                   Unable to extract data because media path is incorrect.
-          - alias: Stop the script
-            stop: >-
+          - stop: >-
               Unable to extract data because media path is incorrect.
             response_variable: response
-      - if:
-          - alias: Check if variables were set correctly
-            condition: template
-            value_template: "{{ mime_type != 'application/vnd.apple.mpegurl' }}"
-        then:
-          - alias: Set variable for error message
-            variables:
-              response:
-                error: >-
-                  Unable to extract data because MIME type is incorrect.
-          - alias: Stop the script
-            stop: >-
-              Unable to extract data because MIME type is incorrect.
-            response_variable: response
+
+      # Resolve camera entity_id
       - variables:
           camera_id: >-
             {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
@@ -261,49 +258,62 @@ sequence:
             {% else -%}
             {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
             {% endif -%}
+
+      # Enforce snapshot MIME (JPEG) for camera regardless of user input
+      - variables:
+          effective_mime: "image/jpeg"
+
+      # Build attachments list for AI Task 2.5
       - variables:
           attachments:
-            media_content_id: media-source://camera/{{ camera_id }}
-            media_content_type: "{{ mime_type }}"
+            - media_content_id: "media-source://camera/snapshot/{{ camera_id }}"
+              media_content_type: "{{ effective_mime }}"
+
     else:
+      # Branch: PATH -> relative media-source path (e.g. local/folder/image.jpg)
       - if:
-          - alias: Check if variables were set correctly
+          - alias: Validate path shape (must be relative under media_source)
             condition: template
             value_template: "{{ media_path.startswith(('media-source', '/')) or not '/' in media_path }}"
         then:
-          - alias: Set variable for error message
-            variables:
+          - variables:
               response:
                 error: >-
                   Unable to extract data because media path is incorrect.
-          - alias: Stop the script
-            stop: >-
+          - stop: >-
               Unable to extract data because media path is incorrect.
             response_variable: response
+
       - variables:
           attachments:
-            media_content_id: media-source://camera/{{ final_camera }}
-            media_content_type: "{{ mime_type }}"
-  - if:
-      - condition: template
-        value_template: "{{ not ai_task_entity }}"
-    then:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media entity
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-        response_variable: result
-    else:
-      - action: ai_task.generate_data
-        data:
-          task_name: Analyze content from a media entity
-          instructions: "{{ instructions }}"
-          attachments: "{{ attachments }}"
-          entity_id: "{{ ai_task_entity }}"
-        response_variable: result
+            - media_content_id: "media-source://media_source/{{ media_path }}"
+              media_content_type: "{{ mime_type }}"
+
+  # AI Task call (entity specific or default)
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ not ai_task_entity }}"
+        sequence:
+          - action: ai_task.generate_data
+            data:
+              task_name: Analyze content from a media entity
+              instructions: "{{ instructions }}"
+              attachments: "{{ attachments }}"
+            response_variable: result
+      - conditions: []
+        sequence:
+          - action: ai_task.generate_data
+            data:
+              task_name: Analyze content from a media entity
+              instructions: "{{ instructions }}"
+              attachments: "{{ attachments }}"
+              entity_id: "{{ ai_task_entity }}"
+            response_variable: result
+
   - variables:
       response:
         data: "{{ result.data }}"
+
   - stop: ""
     response_variable: response
