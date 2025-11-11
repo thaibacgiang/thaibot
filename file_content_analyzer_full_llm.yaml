@@ -19,7 +19,7 @@ input:
 
   ai_task_entity:
     name: AI Task Entity
-    description: Chọn thực thể AI task (ví dụ: ai_task.gemini_2_5_flash_ai_task)
+    description: "Chọn thực thể AI task (ví dụ: ai_task.gemini_2_5_flash_ai_task)"
     selector:
       entity:
         filter:
