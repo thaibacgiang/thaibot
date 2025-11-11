@@ -1,24 +1,15 @@
 blueprint:
-  name: Voice - File Content Analyzer
-  author: luuquangvu
+  name: Voice - File Content Analyzer (Fixed Camera Source)
+  author: luuquangvu + modified by DoThai
   description: >-
-    # Unified tool for analyzing all types of media and document files using AI Vision
-
-    This blueprint combines the strengths of *Voice - Camera AI Analyzer* and *File Content Analyzer*,
-    capable of extracting information from **images, videos, audio, and documents**.
-
-    ## Setup Notes
-    - Requires an AI Task entity (configured in System - General).
-    - Expose cameras to Assist for direct image analysis.
-    - Supports both file path (`media-source://media_source/...`) and camera stream (`media-source://camera/...`).
-
+    Tool designed to analyze and extract all types of information from media and document files.
   domain: script
   homeassistant:
     min_version: 2025.8.0
 
   input:
     entity_aliases_settings:
-      name: Entity Aliases Sensor
+      name: Settings for Entity Aliases
       icon: mdi:format-list-bulleted
       input:
         entity_aliases:
@@ -30,185 +21,110 @@ blueprint:
                   integration: template
 
     ai_task_settings:
-      name: AI Task Settings
+      name: Settings for AI Task
       icon: mdi:robot-outline
+      collapsed: true
       input:
-        ai_task_entity:
-          name: AI Task Entity
-          selector:
-            entity:
-              filter:
-                domain: ai_task
-          default:
-
-    prompt_settings:
-      name: Prompt Settings
-      icon: mdi:robot
-      input:
-        instructions_prompt:
-          name: Instructions Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            Specify what you want to extract or analyze.
-            The tool can analyze image, video, audio, or document content to extract objects, text, people, or context.
-
-        media_source_prompt:
-          name: Media Source Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            Must be one of: 'camera' or 'path'.
-
-        media_path_prompt:
-          name: Media Path Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            If source = 'camera', provide the camera entity name (or alias).
-            If source = 'path', provide the relative path inside /media.
-
-        mime_type_prompt:
-          name: MIME Type Prompt
-          selector:
-            text:
-              multiline: true
-          default: >-
-            Always specify the MIME type (e.g. image/jpeg, video/mp4, text/plain, application/pdf).
-            For camera streams, set: application/vnd.apple.mpegurl.
-
-mode: parallel
-max_exceeded: silent
-
-variables:
-  version: 20251105
-
-fields:
-  instructions:
-    name: Instructions
-    description: !input instructions_prompt
-    selector:
-      text:
-        multiline: true
-    required: true
-
-  media_source:
-    name: Media Source
-    description: !input media_source_prompt
-    selector:
-      select:
-        options:
-          - camera
-          - path
-    required: true
-
-  media_path:
-    name: Media Path
-    description: !input media_path_prompt
-    selector:
-      text:
-    required: true
-
-  mime_type:
-    name: MIME Type
-    description: !input mime_type_prompt
-    selector:
-      text:
-    required: true
+        value_template: "{{ not instructions }}"
 
 sequence:
-  - variables:
-      entity_aliases: !input entity_aliases
-      ai_task_entity: !input ai_task_entity
-      instructions: "{{ instructions | trim }}"
-      media_source: "{{ media_source | trim }}"
-      media_path: "{{ media_path | trim }}"
-      mime_type: "{{ mime_type | trim }}"
-
-  # === Validate Inputs ===
-  - if:
+  - alias: Validate instructions
+    if:
       - condition: template
         value_template: "{{ not instructions }}"
     then:
-      - stop: "Error: Missing instructions."
+      - variables:
+          response:
+            error: "Unable to extract data because instructions is missing or incorrect."
+      - stop: "Unable to extract data because instructions is missing or incorrect."
+        response_variable: response
 
-  - if:
+  - alias: Validate media source
+    if:
       - condition: template
         value_template: "{{ not media_source in ['camera', 'path'] }}"
     then:
-      - stop: "Error: Invalid media source."
+      - variables:
+          response:
+            error: "Unable to extract data because media source is missing or incorrect."
+      - stop: "Unable to extract data because media source is missing or incorrect."
+        response_variable: response
 
-  - if:
+  - alias: Validate mime type
+    if:
       - condition: template
         value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
     then:
-      - stop: "Error: Invalid MIME type."
+      - variables:
+          response:
+            error: "Unable to extract data because MIME type is missing or incorrect."
+      - stop: "Unable to extract data because MIME type is missing or incorrect."
+        response_variable: response
 
-  # === Handle Camera Source ===
-  - choose:
+  ########################################################################
+  # ✅ SỬA ĐÚNG THEO YÊU CẦU: SỬ DỤNG media-source://camera/{{ final_camera }}
+  ########################################################################
+  - alias: Process camera media
+    if:
+      - condition: template
+        value_template: "{{ media_source == 'camera' }}"
+    then:
+      - variables:
+          final_camera: >-
+            {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) %}
+            {{ states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | map(attribute='entity_id') | first }}
+            {% else %}
+            {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
+            {% endif %}
+
+      - variables:
+          attachments:
+            media_content_id: media-source://camera/{{ final_camera }}
+            media_content_type: "{{ mime_type }}"
+
+    else:
+      - alias: Process file media
+      - if:
+          - condition: template
+            value_template: "{{ media_path.startswith(('media-source', '/')) or not '/' in media_path }}"
+        then:
+          - variables:
+              response:
+                error: "Unable to extract data because media path is incorrect."
+          - stop: "Unable to extract data because media path is incorrect."
+            response_variable: response
+      - variables:
+          attachments:
+            media_content_id: "media-source://media_source/{{ media_path }}"
+            media_content_type: "{{ mime_type }}"
+
+  ########################################################################
+  # CALL AI TASK
+  ########################################################################
+  - alias: Run AI Task
+    choose:
       - conditions:
           - condition: template
-            value_template: "{{ media_source == 'camera' }}"
-        sequence:
-          - variables:
-              camera_id: >-
-                {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
-                {{ states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | map(attribute='entity_id') | first }}
-                {% else -%}
-                {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
-                {% endif -%}
-
-          - if:
-              - condition: template
-                value_template: "{{ not camera_id }}"
-            then:
-              - stop: "Error: Camera entity not found."
-
-          - variables:
-              attachments:
-                media_content_id: "media-source://camera/{{ camera_id }}"
-                media_content_type: "{{ mime_type }}"
-
-      # === Handle File Path Source ===
-      - conditions:
-          - condition: template
-            value_template: "{{ media_source == 'path' }}"
-        sequence:
-          - variables:
-              attachments:
-                media_content_id: "media-source://media_source/{{ media_path }}"
-                media_content_type: "{{ mime_type }}"
-
-  # === AI Analysis (Gemini Model) ===
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ ai_task_entity | length > 0 }}"
+            value_template: "{{ not ai_task_entity }}"
         sequence:
           - action: ai_task.generate_data
             data:
-              task_name: "Analyze content from media"
+              task_name: Analyze content from a media entity
               instructions: "{{ instructions }}"
               attachments: "{{ attachments }}"
-              entity_id: "{{ ai_task_entity }}"
             response_variable: result
-
-      - default:
-          - action: ai_task.generate_data
-            data:
-              task_name: "Analyze content from media"
-              instructions: "{{ instructions }}"
-              attachments: "{{ attachments }}"
-              model: "gemini-1.5-pro"  # giữ nguyên model gốc trong file voice_camera_ai_analyzer
-            response_variable: result
+    default:
+      - action: ai_task.generate_data
+        data:
+          task_name: Analyze content from a media entity
+          instructions: "{{ instructions }}"
+          attachments: "{{ attachments }}"
+          entity_id: "{{ ai_task_entity }}"
+        response_variable: result
 
   - variables:
       response:
         data: "{{ result.data }}"
-        summary: "{{ result.data.text | default('No summary available') }}"
 
   - stop: ""
     response_variable: response
