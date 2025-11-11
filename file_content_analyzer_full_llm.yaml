@@ -1,5 +1,5 @@
 blueprint:
-  name: Voice - File Content Analyzer
+  name: Voice - File Content Analyzer (Fixed Camera Source)
   author: luuquangvu + modified by DoThai
   description: >-
     Tool designed to analyze and extract all types of information from media and document files.
@@ -7,23 +7,50 @@ blueprint:
   homeassistant:
     min_version: 2025.8.0
 
-input:
-  entity_aliases:
-    name: Entity Aliases Sensor
-    description: Chọn sensor trợ lý alias đã cấu hình trong `configuration.yaml`
-    selector:
-      entity:
-        filter:
-          - domain: sensor
-            integration: template
+  input:
+    entity_aliases:
+      name: Entity Aliases Sensor
+      description: "Chọn sensor trợ lý alias đã cấu hình trong configuration.yaml"
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              integration: template
 
-  ai_task_entity:
-    name: AI Task Entity
-    description: "Chọn thực thể AI task (ví dụ: ai_task.gemini_2_5_flash_ai_task)"
-    selector:
-      entity:
-        filter:
-          - domain: ai_task
+    ai_task_entity:
+      name: AI Task Entity
+      description: "Chọn thực thể AI task (ví dụ: ai_task.gemini_2_5_flash_ai_task)"
+      selector:
+        entity:
+          filter:
+            - domain: ai_task
+
+    instructions:
+      name: Instructions
+      description: "Nhập yêu cầu mà bạn muốn AI phân tích"
+      selector:
+        text:
+
+    media_source:
+      name: Media Source
+      description: "Chọn loại nguồn media"
+      selector:
+        select:
+          options:
+            - camera
+            - path
+
+    media_path:
+      name: Media Path or Camera Alias
+      description: "Tên camera hoặc đường dẫn file media"
+      selector:
+        text:
+
+    mime_type:
+      name: MIME Type
+      description: "Ví dụ: image/jpeg, image/png, video/mp4"
+      selector:
+        text:
 
 sequence:
   - alias: Validate instructions
@@ -60,7 +87,7 @@ sequence:
         response_variable: response
 
   ########################################################################
-  # ✅ XỬ LÝ CAMERA: Dùng media-source://camera/{{ final_camera }}
+  # ✅ CAMERA MODE (media-source://camera/{{ final_camera }})
   ########################################################################
   - alias: Process camera media
     if:
@@ -82,7 +109,7 @@ sequence:
 
     else:
       ########################################################################
-      # ✅ XỬ LÝ MEDIA TỪ ĐƯỜNG DẪN FILE
+      # ✅ FILE MODE (media-source://media_source/<path>)
       ########################################################################
       - if:
           - condition: template
@@ -100,7 +127,7 @@ sequence:
             media_content_type: "{{ mime_type }}"
 
   ########################################################################
-  # ✅ GỌI AI TASK
+  # ✅ CALL AI TASK
   ########################################################################
   - alias: Run AI Task
     action: ai_task.generate_data
