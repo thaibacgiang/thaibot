@@ -1,6 +1,6 @@
 blueprint:
-  name: Voice - File Content Analyzer (Snapshot compatible, AI Task 2.5)
-  author: luuquangvu (mod by chatgpt)
+  name: Voice - File Content Analyzer
+  author: luuquangvu
   description: >-
     # Tool designed to analyze and extract all types of information from media and document files
 
@@ -10,34 +10,6 @@ blueprint:
 
     * An AI Task entity must be created and configured in the System - General settings.
 
-    * A template sensor stores all information about entity aliases needs to be configured in `config/configuration.yaml`.
-
-    ```
-
-    #File configuration.yaml
-
-    shell_command:
-      get_entity_alias: jq '[.data.entities[] | select(.options.conversation.should_expose == true and (.aliases | length > 0)) | {entity_id, aliases}]' ./.storage/core.entity_registry
-    template:
-      - trigger:
-          - platform: homeassistant
-            event: start
-          - trigger: event
-            event_type: event_template_reloaded
-        action:
-          - action: shell_command.get_entity_alias
-            response_variable: response
-        sensor:
-          - name: "Assist: Entity IDs and Aliases"
-            unique_id: entity_ids_and_aliases
-            icon: mdi:format-list-bulleted
-            device_class: timestamp
-            state: "{{ now().isoformat() }}"
-            attributes:
-              entities: "{{ response.stdout }}"
-
-    ```
-
     ### Optional
 
     * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
@@ -46,29 +18,15 @@ blueprint:
 
     * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to extract data from a media or document file.
 
-    * Expose any camera entities you want to use through Assist, and Assist will be able to "see" whenever you ask.
-
     * Make sure to expose the script to Assist after the script has been saved.
 
     * Do not alter the default script name.
+
+    * Once the script is created, click the three dots in the top right corner, choose "Edit in YAML," and remove the `description: ...` line to restore the default. This step is important because it helps the LLM better understand the script's purpose.
   domain: script
   homeassistant:
     min_version: 2025.8.0
-
   input:
-    entity_aliases_settings:
-      name: Settings for Entity Aliases
-      icon: mdi:format-list-bulleted
-      description: You can use these settings to configure a template sensor that stores all information about entity aliases.
-      input:
-        entity_aliases:
-          name: Entity Aliases
-          selector:
-            entity:
-              filter:
-                - domain: sensor
-                  integration: template
-
     ai_task_settings:
       name: Settings for AI Task
       icon: mdi:robot-outline
@@ -83,7 +41,6 @@ blueprint:
               filter:
                 domain: ai_task
           default:
-
     prompt_settings:
       name: Prompt settings for the LLM
       icon: mdi:robot
@@ -97,51 +54,39 @@ blueprint:
             text:
               multiline: true
           default: >-
-            This argument is mandatory and must always be provided.
+            This argument is mandatory and must always be included.
 
-            The tool can analyze content and extract any type of information from an image, video, audio, or document, including text, numbers, objects, speech, and visual features.
+            The tool can analyze and extract any type of information from an image, video, audio, or document, including text, numbers, objects, speech, and visual features.
 
-            Always clearly specify exactly what data should be extracted.
-        media_source_prompt:
-          name: Media Source Prompt
-          description: The prompt which will be used for the LLM can provide the media source for the query.
+            Always specify exactly what data should be extracted.
+
+            This tool returns plain text only.
+        file_path_prompt:
+          name: File Path Prompt
+          description: The prompt which will be used for the LLM can provide the file path for the query.
           selector:
             text:
               multiline: true
           default: >-
-            This argument is mandatory and must always be provided.
+            This argument is mandatory and must always be included.
 
-            Always specify the media source.
-
-            It must be one of the following values: 'camera' for a camera entity, or 'path' for other types.
-        media_path_prompt:
-          name: Media Path Prompt
-          description: The prompt which will be used for the LLM can provide the media path for the query.
-          selector:
-            text:
-              multiline: true
-          default: >-
-            This argument is mandatory and must always be provided.
-
-            Always specify either the relative path of the media or the camera entity name.
+            Always specify a relative file path that starts with `local/`.
         mime_type_prompt:
           name: MIME Type Prompt
-          description: The prompt which will be used for the LLM can provide the MIME type of media for the query.
+          description: The prompt which will be used for the LLM can provide the MIME type of file for the query.
           selector:
             text:
               multiline: true
           default: >-
-            This argument is mandatory and must always be provided.
+            This argument is mandatory and must always be included.
 
-            Always specify the MIME type of the media.
-
-            If the media source is 'camera', the MIME type must be set to 'image/jpeg'.
-
+            Always specify the MIME type of the file.
+            Choose a value that matches the file contents (for example image/jpeg, video/mp4, audio/mp3, text/plain, or application/pdf).
 mode: parallel
 max_exceeded: silent
+description: Analyzes the content of a specified file.
 variables:
-  version: 20251111
-
+  version: 20251116
 fields:
   instructions:
     name: Instructions
@@ -150,18 +95,9 @@ fields:
       text:
         multiline: true
     required: true
-  media_source:
-    name: Media Source
-    description: !input media_source_prompt
-    selector:
-      select:
-        options:
-          - camera
-          - path
-    required: true
-  media_path:
+  file_path:
     name: Media Path
-    description: !input media_path_prompt
+    description: !input file_path_prompt
     selector:
       text:
     required: true
@@ -171,149 +107,78 @@ fields:
     selector:
       text:
     required: true
-
 sequence:
   - variables:
-      entity_aliases: !input entity_aliases
       ai_task_entity: !input ai_task_entity
       instructions: "{{ instructions | default('') | trim }}"
-      media_source: "{{ media_source | default('') | trim }}"
-      media_path: "{{ media_path | default('') | trim }}"
+      file_path: "{{ file_path | default('') | trim }}"
       mime_type: "{{ mime_type | default('') | trim }}"
-
-  # Validate instructions
   - if:
-      - alias: Check instructions
+      - alias: Check if variables were set correctly
         condition: template
         value_template: "{{ not instructions }}"
     then:
-      - variables:
+      - alias: Set variable for error message
+        variables:
           response:
             error: >-
               Unable to extract data because instructions is missing or incorrect.
-      - stop: >-
+      - alias: Stop the script
+        stop: >-
           Unable to extract data because instructions is missing or incorrect.
         response_variable: response
-
-  # Validate media_source
   - if:
-      - alias: Check media_source
+      - alias: Check if variables were set correctly
         condition: template
-        value_template: "{{ not media_source in ['camera', 'path'] }}"
+        value_template: "{{ (file_path | length == 0) or (not file_path.startswith('local/')) }}"
     then:
-      - variables:
+      - alias: Set variable for error message
+        variables:
           response:
             error: >-
-              Unable to extract data because media source is missing or incorrect.
-      - stop: >-
-          Unable to extract data because media source is missing or incorrect.
+              Unable to extract data because file path is missing or invalid. Specify a path beginning with `local/`, such as `local/folder/file.ext`.
+      - alias: Stop the script
+        stop: >-
+          Unable to extract data because file path is missing or invalid.
         response_variable: response
-
-  # Validate generic MIME prefix
   - if:
-      - alias: Check MIME prefix
+      - alias: Check if variables were set correctly
         condition: template
         value_template: "{{ not mime_type.startswith(('image/', 'video/', 'audio/', 'text/', 'application/')) }}"
     then:
-      - variables:
+      - alias: Set variable for error message
+        variables:
           response:
             error: >-
               Unable to extract data because MIME type is missing or incorrect.
-      - stop: >-
+      - alias: Stop the script
+        stop: >-
           Unable to extract data because MIME type is missing or incorrect.
         response_variable: response
-
-  # Branch: CAMERA -> use snapshot
+  - variables:
+      attachments:
+        media_content_id: media-source://media_source/{{ file_path }}
+        media_content_type: "{{ mime_type }}"
   - if:
       - condition: template
-        value_template: "{{ media_source == 'camera' }}"
+        value_template: "{{ not ai_task_entity }}"
     then:
-      # Validate camera exists (friendly_name or alias)
-      - if:
-          - alias: Validate camera path by friendly_name or alias
-            condition: template
-            value_template: >-
-              {% set by_name = states.camera
-                 | selectattr('attributes.friendly_name', '==', media_path.strip())
-                 | list %}
-              {% set by_alias = (state_attr(entity_aliases, 'entities') | default([]))
-                 | selectattr('entity_id', 'match', 'camera\.')
-                 | selectattr('aliases', 'contains', media_path.strip())
-                 | list %}
-              {{ (by_name | length == 0) and (by_alias | length == 0) }}
-        then:
-          - variables:
-              response:
-                error: >-
-                  Unable to extract data because media path is incorrect.
-          - stop: >-
-              Unable to extract data because media path is incorrect.
-            response_variable: response
-
-      # Resolve camera entity_id
-      - variables:
-          camera_id: >-
-            {% if (states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | list) -%}
-            {{ states.camera | selectattr('attributes.friendly_name', '==', media_path.strip()) | map(attribute='entity_id') | first }}
-            {% else -%}
-            {{ state_attr(entity_aliases, 'entities') | default([]) | selectattr('entity_id', 'match', 'camera\.') | selectattr('aliases', 'contains', media_path.strip()) | map(attribute='entity_id') | first }}
-            {% endif -%}
-
-      # Enforce snapshot MIME (JPEG) for camera regardless of user input
-      - variables:
-          effective_mime: "image/jpeg"
-
-      # Build attachments list for AI Task 2.5
-      - variables:
-          attachments:
-            - media_content_id: "media-source://camera/snapshot/{{ camera_id }}"
-              media_content_type: "{{ effective_mime }}"
-
+      - action: ai_task.generate_data
+        data:
+          task_name: Analyze content from a media or document file
+          instructions: "{{ instructions }}"
+          attachments: "{{ attachments }}"
+        response_variable: result
     else:
-      # Branch: PATH -> relative media-source path (e.g. local/folder/image.jpg)
-      - if:
-          - alias: Validate path shape (must be relative under media_source)
-            condition: template
-            value_template: "{{ media_path.startswith(('media-source', '/')) or not '/' in media_path }}"
-        then:
-          - variables:
-              response:
-                error: >-
-                  Unable to extract data because media path is incorrect.
-          - stop: >-
-              Unable to extract data because media path is incorrect.
-            response_variable: response
-
-      - variables:
-          attachments:
-            - media_content_id: "media-source://media_source/{{ media_path }}"
-              media_content_type: "{{ mime_type }}"
-
-  # AI Task call (entity specific or default)
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: "{{ not ai_task_entity }}"
-        sequence:
-          - action: ai_task.generate_data
-            data:
-              task_name: Analyze content from a media entity
-              instructions: "{{ instructions }}"
-              attachments: "{{ attachments }}"
-            response_variable: result
-      - conditions: []
-        sequence:
-          - action: ai_task.generate_data
-            data:
-              task_name: Analyze content from a media entity
-              instructions: "{{ instructions }}"
-              attachments: "{{ attachments }}"
-              entity_id: "{{ ai_task_entity }}"
-            response_variable: result
-
+      - action: ai_task.generate_data
+        data:
+          task_name: Analyze content from a media or document file
+          instructions: "{{ instructions }}"
+          attachments: "{{ attachments }}"
+          entity_id: "{{ ai_task_entity }}"
+        response_variable: result
   - variables:
       response:
         data: "{{ result.data }}"
-
   - stop: ""
     response_variable: response
