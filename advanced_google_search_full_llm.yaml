@@ -1,19 +1,42 @@
 blueprint:
-  name: Voice - Perform Google Search (Fixed)
-  author: luuquangvu
+  name: Voice - Perform Google Search
+  author: Thaidv
   description: >-
     # Tool for searching Google information used for Voice Assistant
+
     ## Blueprint Setup
+
     ### Required
+
     * This blueprint is exclusively designed for Google Generative AI only.
+
     * A Conversation Agent with Google Search tool enabled, create it if it doesn't already exist.
+
     * Increase the agent's maximum token limit to enable it to gather comprehensive information, with a minimum requirement of 16384 tokens.
+
     * Agent Instructions:
+
     ```
-    You are a voice assistant. Always respond in the same language as the user's message. 
-    If in Vietnamese, reply in Vietnamese; if in English, reply in English. 
-    Current date and time: {{ now().isoformat(timespec='seconds') }}.
+
+    You are a voice assistant. Always respond in the same language as the user's message. If in Vietnamese, reply in Vietnamese; if in English, reply in English. Current date and time: {{ now().isoformat(timespec='seconds') }}.
+
+    IMPORTANT: When processing script requests, do not trigger any scripts automatically. Only use the Google Search tool directly.
+
     ```
+
+    ### Optional
+
+    * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
+
+    ### Note
+
+    * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to search for information from Google.
+
+    * Make sure to expose the script to Assist after the script has been saved.
+
+    * Do not alter the default script name.
+
+    * Once the script is created, click the three dots in the top right corner, choose "Edit in YAML," and remove the `description: ...` line to restore the default. This step is important because it helps the LLM better understand the script's purpose.
   domain: script
   homeassistant:
     min_version: 2025.4.0
@@ -42,8 +65,11 @@ blueprint:
             text:
               multiline: true
           default: >-
+            This argument is mandatory and must always be included.
+
             Specify the search string to obtain information from Google.
-            If the query seems misspelled or misheard, silently correct it to the most likely intended search string.
+
+            If the query seems misspelled or misheard, silently correct it to the most likely intended search string and proceed. Do not ask clarifying questions; instead, briefly note the correction in the response.
         language_prompt:
           name: Language Prompt
           description: The prompt which will be used for the LLM can provide the language for the query.
@@ -51,9 +77,10 @@ blueprint:
             text:
               multiline: true
           default: >-
-            Specify the output language of the response using an IETF BCP 47 language tag (e.g., vi-VN, en-US). 
-            The value must match the user's language.
-mode: single
+            This argument is mandatory and must always be included.
+
+            Specify the output language of the response using an IETF BCP 47 language tag (e.g., vi-VN, en-US). The value must match the user's language.
+mode: single  # CHANGED FROM parallel TO single
 max_exceeded: silent
 description: Searches Google based on a query string.
 variables:
@@ -82,24 +109,19 @@ sequence:
     then:
       - stop: "Unable to search for information because the query string or language is empty."
         response_variable: response
-  - alias: Perform Google Search
-    action: conversation.process
-    response_variable: search_result
+  - action: conversation.process
+    response_variable: response
     data:
       agent_id: !input agent_id
       text: >-
-        SEARCH_QUERY: {{ query_string }}
+        SEARCH_REQUEST: {{ query_string }}
         LANGUAGE: {{ language }}
         
-        Please use the Google Search tool to find current and accurate information about this query.
-        Provide a comprehensive answer based on the search results.
+        Use ONLY the Google Search tool to find current information about this query.
+        Provide a clear, factual answer based on the search results.
+        Do not trigger any scripts or automation.
+        
+        If no results are found, state: "No information found for: {{ query_string }}"
       language: "{{ language }}"
-  - variables:
-      final_response: >
-        {% if search_result.response.speech.text is defined %}
-          {{ search_result.response.speech.text }}
-        {% else %}
-          No information found from Google Search for: {{ query_string }}
-        {% endif %}
   - stop: ""
-    response_variable: final_response
+    response_variable: response
