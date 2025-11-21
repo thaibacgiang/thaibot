@@ -1,50 +1,24 @@
 blueprint:
   name: Voice - Perform Google Search
-  author: Thaidv
+  author: luuquangvu
   description: >-
-    # Tool for searching Google information used for Voice Assistant
+    Tool for performing a single-pass, reliable Google Search without looping.
 
-    ## Blueprint Setup
+    This blueprint sends a clean, deterministic request to the conversation agent,
+    forcing it to use the Google Search tool exactly once, avoiding iterative refinement,
+    recursion, looping, or self-calling behaviors.
 
-    ### Required
+    Ensure the Conversation Agent has Google Search tool enabled.
 
-    * This blueprint is exclusively designed for Google Generative AI only.
-
-    * A Conversation Agent with Google Search tool enabled, create it if it doesn't already exist.
-
-    * Increase the agent's maximum token limit to enable it to gather comprehensive information, with a minimum requirement of 16384 tokens.
-
-    * Agent Instructions:
-
-    ```
-
-    You are a voice assistant. Always respond in the same language as the user's message. If in Vietnamese, reply in Vietnamese; if in English, reply in English. Current date and time: {{ now().isoformat(timespec='seconds') }}.
-
-    IMPORTANT: When processing script requests, do not trigger any scripts automatically. Only use the Google Search tool directly.
-
-    ```
-
-    ### Optional
-
-    * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
-
-    ### Note
-
-    * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to search for information from Google.
-
-    * Make sure to expose the script to Assist after the script has been saved.
-
-    * Do not alter the default script name.
-
-    * Once the script is created, click the three dots in the top right corner, choose "Edit in YAML," and remove the `description: ...` line to restore the default. This step is important because it helps the LLM better understand the script's purpose.
   domain: script
   homeassistant:
     min_version: 2025.4.0
+
   input:
     agent_settings:
       name: Settings for Conversation Agent
       icon: mdi:robot-outline
-      description: These settings enable you to configure the conversation agent used for searching Google information.
+      description: Choose the conversation agent that has Google Search enabled.
       input:
         agent_id:
           name: Conversation Agent
@@ -52,39 +26,38 @@ blueprint:
             entity:
               filter:
                 domain: conversation
+
     prompt_settings:
-      name: Prompt settings for the LLM
+      name: Prompt Settings for the LLM
       icon: mdi:robot
-      description: You can use these settings to finetune the prompts for your specific LLM (model). In most cases the defaults should be fine.
       collapsed: true
+      description: Optional prompt finetuning.
       input:
         query_string_prompt:
           name: Query String Prompt
-          description: The prompt which will be used for the LLM can provide the search string for the query.
           selector:
             text:
               multiline: true
           default: >-
-            This argument is mandatory and must always be included.
+            Provide the exact search query for Google Search. If misspelled, silently correct it.
+            Do not ask for clarification.
 
-            Specify the search string to obtain information from Google.
-
-            If the query seems misspelled or misheard, silently correct it to the most likely intended search string and proceed. Do not ask clarifying questions; instead, briefly note the correction in the response.
         language_prompt:
           name: Language Prompt
-          description: The prompt which will be used for the LLM can provide the language for the query.
           selector:
             text:
               multiline: true
           default: >-
-            This argument is mandatory and must always be included.
+            Provide the response language using IETF BCP-47 code (e.g., vi-VN, en-US).
+            Must match the user's language.
 
-            Specify the output language of the response using an IETF BCP 47 language tag (e.g., vi-VN, en-US). The value must match the user's language.
-mode: single  # CHANGED FROM parallel TO single
+mode: parallel
 max_exceeded: silent
-description: Searches Google based on a query string.
+description: Searches Google in a single-pass, non-looping process.
+
 variables:
-  version: 20251116
+  version: 20251121
+
 fields:
   query_string:
     name: Query String
@@ -92,36 +65,55 @@ fields:
     selector:
       text:
     required: true
+
   language:
     name: Language
     description: !input language_prompt
     selector:
       text:
     required: true
+
 sequence:
+
   - variables:
       query_string: "{{ query_string | default('') | trim }}"
       language: "{{ language | default('') | trim }}"
-  - alias: Check if variables were set correctly
+
+  - alias: Validate input
     if:
       - condition: template
         value_template: "{{ not query_string or not language }}"
     then:
-      - stop: "Unable to search for information because the query string or language is empty."
+      - variables:
+          response:
+            error: Missing query string or language.
+      - stop: Missing query string or language.
         response_variable: response
-  - action: conversation.process
+
+  - alias: Perform search via conversation agent
+    action: conversation.process
     response_variable: response
     data:
       agent_id: !input agent_id
-      text: >-
-        SEARCH_REQUEST: {{ query_string }}
-        LANGUAGE: {{ language }}
-        
-        Use ONLY the Google Search tool to find current information about this query.
-        Provide a clear, factual answer based on the search results.
-        Do not trigger any scripts or automation.
-        
-        If no results are found, state: "No information found for: {{ query_string }}"
       language: "{{ language }}"
+      text: >-
+        You MUST use the Google Search tool EXACTLY ONCE to gather information about:
+
+        "{{ query_string }}"
+
+        RULES:
+        - Do not refine the query.
+        - Do not perform multiple searches.
+        - Do not create loops, summaries of summaries, or follow-up internal requests.
+        - Do not attempt recursive or iterative reasoning.
+        - No "improving" the query unless spelling correction is needed.
+        - Never fabricate sources.
+        - If results are empty, return: "No results found. Try a different query."
+
+        OUTPUT FORMAT:
+        1) Short summary (4–6 sentences)
+        2) Detailed findings
+        3) Optional: Source names (publisher/site + date)
+
   - stop: ""
     response_variable: response
