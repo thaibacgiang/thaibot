@@ -1,6 +1,6 @@
 blueprint:
-  name: Voice - Perform Google Search
-  author: luuquangvu
+  name: Voice - Perform Google Search (No Loop)
+  author: Thaidv
   description: >-
     # Tool for searching Google information used for Voice Assistant
 
@@ -22,19 +22,14 @@ blueprint:
 
     ```
 
+    ### Important
+
+    * In the agent's instructions, ADD this line: "DO NOT use the 'Voice - Perform Google Search' script for general queries."
+
     ### Optional
 
     * Adjust the prompts for each field used in the script. The descriptions guide the LLM to provide the correct input.
 
-    ### Note
-
-    * Provide a concise and precise description for the script. This description will enable the LLM to recognize that the script is designed to search for information from Google.
-
-    * Make sure to expose the script to Assist after the script has been saved.
-
-    * Do not alter the default script name.
-
-    * Once the script is created, click the three dots in the top right corner, choose "Edit in YAML," and remove the `description: ...` line to restore the default. This step is important because it helps the LLM better understand the script's purpose.
   domain: script
   homeassistant:
     min_version: 2025.4.0
@@ -65,7 +60,7 @@ blueprint:
           default: >-
             This argument is mandatory and must always be included.
 
-            Specify the search string to obtain information from Google.
+            Specify ONLY the search query string for Google Search.
 
             If the query seems misspelled or misheard, silently correct it to the most likely intended search string and proceed. Do not ask clarifying questions; instead, briefly note the correction in the response.
         language_prompt:
@@ -78,7 +73,7 @@ blueprint:
             This argument is mandatory and must always be included.
 
             Specify the output language of the response using an IETF BCP 47 language tag (e.g., vi-VN, en-US). The value must match the user's language.
-mode: parallel
+mode: single
 max_exceeded: silent
 description: Searches Google based on a query string.
 variables:
@@ -112,25 +107,19 @@ sequence:
       - alias: Stop the script
         stop: Unable to search for information because the query string or language is empty.
         response_variable: response
-  - action: conversation.process
+  - alias: Perform Google Search
+    action: conversation.process
     response_variable: response
     data:
       agent_id: !input agent_id
       text: >-
-        Use Google Search to gather accurate, comprehensive information about:
+        Tìm kiếm thông tin về: {{ query_string }}
 
-        {{ query_string }}
-
-
-        Instructions:
-
-        - Perform up to three iterative refinements. Avoid duplicate sources; prioritize recent, authoritative content.
-
-        - Include both a concise overview and expanded details to minimize the need for follow-up searches.
-
-        - Optionally include source names (publisher/site, date).
-
-        - Always use the Google Search tool for factual lookups. If no results are found, state this clearly and suggest refined queries. Never fabricate sources.
+        Hướng dẫn:
+        - Chỉ sử dụng công cụ Tìm kiếm Google có sẵn
+        - Cung cấp thông tin chính xác, cập nhật
+        - Ưu tiên các nguồn tin cậy
+        - Trả lời bằng ngôn ngữ: {{ language }}
       language: "{{ language }}"
   - stop: ""
     response_variable: response
