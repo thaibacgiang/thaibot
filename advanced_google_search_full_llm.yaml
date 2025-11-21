@@ -1,15 +1,17 @@
+# Fixed Blueprint: Voice - Perform Google Search (Anti-loop + Reliable Output)
+#==============================================================
+# This version improves:
+# - Prevents infinite loops
+# - Forces Google Search tool usage
+# - Ensures the LLM always returns structured results
+# - Ensures at least one real result must appear
+#==============================================================
+
 blueprint:
-  name: Voice - Perform Google Search
+  name: Voice - Perform Google Search (Fixed)
   author: luuquangvu
   description: >-
-    Tool for performing a single-pass, reliable Google Search without looping.
-
-    This blueprint sends a clean, deterministic request to the conversation agent,
-    forcing it to use the Google Search tool exactly once, avoiding iterative refinement,
-    recursion, looping, or self-calling behaviors.
-
-    Ensure the Conversation Agent has Google Search tool enabled.
-
+    Voice Google Search tool using Google Generative AI.
   domain: script
   homeassistant:
     min_version: 2025.4.0
@@ -18,7 +20,7 @@ blueprint:
     agent_settings:
       name: Settings for Conversation Agent
       icon: mdi:robot-outline
-      description: Choose the conversation agent that has Google Search enabled.
+      description: Conversation Agent with Google Search tool enabled.
       input:
         agent_id:
           name: Conversation Agent
@@ -28,10 +30,9 @@ blueprint:
                 domain: conversation
 
     prompt_settings:
-      name: Prompt Settings for the LLM
+      name: Extra Prompts
       icon: mdi:robot
       collapsed: true
-      description: Optional prompt finetuning.
       input:
         query_string_prompt:
           name: Query String Prompt
@@ -39,22 +40,19 @@ blueprint:
             text:
               multiline: true
           default: >-
-            Provide the exact search query for Google Search. If misspelled, silently correct it.
-            Do not ask for clarification.
-
+            Provide only the clean Google search query.
+            Correct spelling silently.
+            Never ask clarification questions.
         language_prompt:
           name: Language Prompt
           selector:
             text:
               multiline: true
           default: >-
-            Provide the response language using IETF BCP-47 code (e.g., vi-VN, en-US).
-            Must match the user's language.
+            Provide the output language using IETF BCP 47 tags.
 
 mode: parallel
 max_exceeded: silent
-description: Searches Google in a single-pass, non-looping process.
-
 variables:
   version: 20251121
 
@@ -74,46 +72,51 @@ fields:
     required: true
 
 sequence:
-
   - variables:
-      query_string: "{{ query_string | default('') | trim }}"
-      language: "{{ language | default('') | trim }}"
+      query_string: "{{ query_string | trim }}"
+      language: "{{ language | trim }}"
 
-  - alias: Validate input
+  - alias: Validate Input
     if:
       - condition: template
         value_template: "{{ not query_string or not language }}"
     then:
       - variables:
           response:
-            error: Missing query string or language.
-      - stop: Missing query string or language.
+            error: "Query or language is empty"
+      - stop: Query or language is empty
         response_variable: response
 
-  - alias: Perform search via conversation agent
+  # MAIN GOOGLE SEARCH ACTION
+  - alias: Perform Google Search
     action: conversation.process
     response_variable: response
     data:
       agent_id: !input agent_id
       language: "{{ language }}"
       text: >-
-        You MUST use the Google Search tool EXACTLY ONCE to gather information about:
+        You MUST perform a single Google Search using the Google Search tool.
 
-        "{{ query_string }}"
+        STRICT RULES:
+        - ABSOLUTELY NO LOOPS.
+        - DO NOT self-correct or think iteratively.
+        - Perform EXACTLY ONE Google Search call.
+        - Return real results from the Google Search tool only.
+        - If search returns 0 results, say "Không tìm thấy kết quả" (or match language).
+        - Output must follow this structure:
 
-        RULES:
-        - Do not refine the query.
-        - Do not perform multiple searches.
-        - Do not create loops, summaries of summaries, or follow-up internal requests.
-        - Do not attempt recursive or iterative reasoning.
-        - No "improving" the query unless spelling correction is needed.
-        - Never fabricate sources.
-        - If results are empty, return: "No results found. Try a different query."
+        ### Summary
+        (Short summary)
 
-        OUTPUT FORMAT:
-        1) Short summary (4–6 sentences)
-        2) Detailed findings
-        3) Optional: Source names (publisher/site + date)
+        ### Key Points
+        - (3–6 bullet points)
+
+        ### Sources
+        - (Website name — date)
+
+        ---------------------------------------------------
+        QUERY TO SEARCH:
+        {{ query_string }}
 
   - stop: ""
     response_variable: response
