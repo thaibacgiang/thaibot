@@ -1,86 +1,98 @@
 blueprint:
-  name: Voice - Smart Camera Analyzer (Single + Sequential)
+  name: Voice - Smart Camera Analyzer 
   author: Thaidv_fixed + patched_by_chatgpt
   description: >
     Tự động phát hiện:
       - Hỏi 1 camera → Trả lời trực tiếp
       - Hỏi nhiều camera → Phân tích tuần tự rồi tổng hợp
-  domain: script
+  domain: automation
   homeassistant:
     min_version: 2025.8.0
   input:
     entity_aliases_settings:
       name: Settings for Entity Aliases
       icon: mdi:format-list-bulleted
-      input:
-        entity_aliases:
-          name: Entity Aliases
-          selector:
-            entity:
-              filter:
-                - domain:
-                    - sensor
-                  integration: template
-              multiple: false
-              reorder: false
-          default:
+      selector:
+        entity:
+          filter:
+            - domain:
+                - sensor
+            integration: template
+          multiple: false
     ai_task_settings:
       name: AI Task Settings
       icon: mdi:robot-outline
-      collapsed: true
-      input:
-        ai_task_entity:
-          name: AI Task Entity
-          selector:
-            entity:
-              filter:
-                - domain:
-                    - ai_task
-              multiple: false
-              reorder: false
-          default:
-        delay_between_cameras:
-          name: Delay Between Cameras (seconds)
-          description: Chỉ dùng khi phân tích nhiều camera
-          selector:
-            number:
-              min: 0.0
-              max: 10.0
-              step: 0.5
-              unit_of_measurement: s
-              mode: slider
-          default: 1
+      selector:
+        object:
+          properties:
+            ai_task_entity:
+              name: AI Task Entity
+              selector:
+                entity:
+                  filter:
+                    - domain:
+                        - ai_task
+                  multiple: false
+            delay_between_cameras:
+              name: Delay Between Cameras (seconds)
+              description: Chỉ dùng khi phân tích nhiều camera
+              selector:
+                number:
+                  min: 0.0
+                  max: 10.0
+                  step: 0.5
+                  unit_of_measurement: s
+                  mode: slider
+              default: 1
+          required: []
+    instructions:
+      name: Camera Question
+      description: >
+        Hỏi về camera (VD "camera phòng khách có người không", "tất cả camera thấy gì")
+      selector:
+        text:
+          multiline: true
+      required: true
   source_url: https://github.com/thaibacgiang/thaibot/edit/main/Voice_Smart_Camera_AI_Analyzer.yaml
 
-mode: parallel
-max_exceeded: silent
+# Trigger phần phải được định nghĩa trong automation thực tế, không phải trong blueprint
+# mode: parallel
+# max_exceeded: silent
 
-fields:
-  instructions:
-    name: Camera Question
-    description: >
-      Hỏi về camera (VD "camera phòng khách có người không", "tất cả camera thấy gì")
-    selector:
-      text:
-        multiline: true
-    required: true
+# Phần này phải là trigger, không phải fields
+# fields:
+#   instructions:
+#     name: Camera Question
+#     description: >
+#       Hỏi về camera (VD "camera phòng khách có người không", "tất cả camera thấy gì")
+#     selector:
+#       text:
+#         multiline: true
+#     required: true
 
-sequence:
-  - variables:
-      entity_aliases: !input entity_aliases
-      ai_task_entity: !input ai_task_entity
-      delay_between_cameras: !input delay_between_cameras
-      user_question: "{{ instructions | default('') | trim }}"
+# Bắt đầu với trigger mẫu
+trigger:
+  - platform: event
+    event_type: conversation_start
 
-  - if:
-      - condition: template
-        value_template: "{{ not user_question }}"
-    then:
-      - variables:
-          response:
-            error: Vui lòng nhập câu hỏi
-      - stop: Missing question
-        response_variable: response
+# Variables section thay vì sequence trực tiếp
+variables:
+  entity_aliases: !input entity_aliases_settings
+  ai_task_entity: "{{ ai_task_settings.ai_task_entity if ai_task_settings.ai_task_entity else '' }}"
+  delay_between_cameras: "{{ ai_task_settings.delay_between_cameras if ai_task_settings.delay_between_cameras else 1 }}"
+  user_question: "{{ instructions | default('') | trim }}"
+
+# Sequence chính
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ not user_question }}"
+        sequence:
+          - variables:
+              response:
+                error: Vui lòng nhập câu hỏi
+          - stop: Missing question
 
   - variables:
       all_cameras: >
@@ -179,9 +191,7 @@ sequence:
         {% endif %}
 
   #######################################################################
-  #                                                                     #
   #                         SINGLE CAMERA MODE                          #
-  #                                                                     #
   #######################################################################
 
   - choose:
@@ -190,9 +200,7 @@ sequence:
             value_template: "{{ use_mode == 'single' }}"
         sequence:
 
-          # ----------------------------------------
-          # --- FIX: CHECK IMAGE AVAILABLE (SINGLE)
-          # ----------------------------------------
+          # Kiểm tra hình ảnh có sẵn
           - variables:
               img_available: >
                 {% set ent = final_camera %}
@@ -202,21 +210,19 @@ sequence:
                   true
                 {% endif %}
 
-          - if:
-              - condition: template
-                value_template: "{{ not img_available }}"
-            then:
-              - variables:
-                  response:
-                    mode: single
-                    camera: "{{ final_camera }}"
-                    camera_name: "{{ state_attr(final_camera,'friendly_name') or final_camera }}"
-                    answer: "Không lấy được hình ảnh từ camera (có thể mất nguồn hoặc offline)."
-                    timestamp: "{{ now().isoformat() }}"
-              - stop: ''
-                response_variable: response
-
-          # ----------------------------------------
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ not img_available }}"
+                sequence:
+                  - variables:
+                      response:
+                        mode: single
+                        camera: "{{ final_camera }}"
+                        camera_name: "{{ state_attr(final_camera,'friendly_name') or final_camera }}"
+                        answer: "Không lấy được hình ảnh từ camera (có thể mất nguồn hoặc offline)."
+                        timestamp: "{{ now().isoformat() }}"
+                  - stop: ''
 
           - variables:
               camera_name: "{{ state_attr(final_camera,'friendly_name') or final_camera }}"
@@ -230,34 +236,31 @@ sequence:
                 - Describe objects if needed
                 - If dark/blocked: "Camera bị tối/che khuất"
                 Answer directly.
-              camera_attachment:
-                media_content_id: media-source://camera/{{ final_camera }}
-                media_content_type: image/jpeg
-                metadata:
-                  title: "{{ camera_name }}"
-                  media_class: image
 
+          # Phân tích camera đơn
           - choose:
               - conditions:
                   - condition: template
                     value_template: "{{ not ai_task_entity }}"
                 sequence:
-                  - action: ai_task.generate_data
+                  - service: ai_task.generate_data
                     data:
                       task_name: Analyze {{ camera_name }}
                       instructions: "{{ single_prompt }}"
                       attachments:
-                        - "{{ camera_attachment }}"
+                        - media_content_id: media-source://camera/{{ final_camera }}
+                          media_content_type: image/jpeg
                     response_variable: ai_result
               default:
-                  - action: ai_task.generate_data
-                    data:
-                      entity_id: "{{ ai_task_entity }}"
-                      task_name: Analyze {{ camera_name }}
-                      instructions: "{{ single_prompt }}"
-                      attachments:
-                        - "{{ camera_attachment }}"
-                    response_variable: ai_result
+                - service: ai_task.generate_data
+                  data:
+                    entity_id: "{{ ai_task_entity }}"
+                    task_name: Analyze {{ camera_name }}
+                    instructions: "{{ single_prompt }}"
+                    attachments:
+                      - media_content_id: media-source://camera/{{ final_camera }}
+                        media_content_type: image/jpeg
+                  response_variable: ai_result
 
           - variables:
               response:
@@ -267,13 +270,8 @@ sequence:
                 answer: "{{ ai_result.data if ai_result.data is defined else 'Lỗi phân tích' }}"
                 timestamp: "{{ now().isoformat() }}"
 
-          - stop: ''
-            response_variable: response
-
   #######################################################################
-  #                                                                     #
   #                        MULTI CAMERA MODE                            #
-  #                                                                     #
   #######################################################################
 
       - conditions:
@@ -281,15 +279,15 @@ sequence:
             value_template: "{{ use_mode == 'multi' }}"
         sequence:
 
-          - if:
-              - condition: template
-                value_template: "{{ all_cameras | length == 0 }}"
-            then:
-              - variables:
-                  response:
-                    error: Không tìm thấy camera nào
-              - stop: No cameras
-                response_variable: response
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ all_cameras | length == 0 }}"
+                sequence:
+                  - variables:
+                      response:
+                        error: Không tìm thấy camera nào
+                  - stop: No cameras
 
           - variables:
               analysis_prompt: >
@@ -301,6 +299,7 @@ sequence:
                 - If dark/blocked: "Camera tối/che khuất"
               camera_results: []
 
+          # Phân tích từng camera
           - repeat:
               for_each: "{{ all_cameras }}"
               sequence:
@@ -308,9 +307,7 @@ sequence:
                     current_camera: "{{ repeat.item }}"
                     camera_name: "{{ state_attr(repeat.item,'friendly_name') or repeat.item }}"
 
-                # ---------------------------------------------------------
-                # --- FIX: CHECK IMAGE AVAILABLE (MULTI)
-                # ---------------------------------------------------------
+                # Kiểm tra hình ảnh có sẵn
                 - variables:
                     img_available: >
                       {% if state_attr(current_camera, 'last_updated') is none %}
@@ -319,57 +316,47 @@ sequence:
                         true
                       {% endif %}
 
-                - if:
-                    - condition: template
-                      value_template: "{{ not img_available }}"
-                  then:
-                    - variables:
-                        ai_single_result:
-                          data: "Không lấy được hình ảnh từ camera {{ camera_name }} (có thể mất nguồn hoặc offline)."
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ not img_available }}"
+                      sequence:
+                        - variables:
+                            camera_results: >
+                              {% set r = camera_results %}
+                              {% set new = {
+                                'camera': current_camera,
+                                'camera_name': camera_name,
+                                'analysis': 'Không lấy được hình ảnh từ camera (có thể mất nguồn hoặc offline).',
+                                'timestamp': now().isoformat()
+                              } %}
+                              {{ r + [new] }}
+                        - continue
 
-                    - variables:
-                        camera_results: >
-                          {% set r = camera_results %}
-                          {% set new = {
-                            'camera': current_camera,
-                            'camera_name': camera_name,
-                            'analysis': ai_single_result.data,
-                            'timestamp': now().isoformat()
-                          } %}
-                          {{ r + [new] }}
-
-                    - continue
-                # ---------------------------------------------------------
-
-                - variables:
-                    camera_attachment:
-                      media_content_id: media-source://camera/{{ current_camera }}
-                      media_content_type: image/jpeg
-                      metadata:
-                        title: "{{ camera_name }}"
-                        media_class: image
-
+                # Gọi AI để phân tích
                 - choose:
                     - conditions:
                         - condition: template
                           value_template: "{{ not ai_task_entity }}"
                       sequence:
-                        - action: ai_task.generate_data
+                        - service: ai_task.generate_data
                           data:
                             task_name: Analyze {{ camera_name }}
                             instructions: "{{ analysis_prompt }}"
                             attachments:
-                              - "{{ camera_attachment }}"
+                              - media_content_id: media-source://camera/{{ current_camera }}
+                                media_content_type: image/jpeg
                           response_variable: ai_single_result
                     default:
-                        - action: ai_task.generate_data
-                          data:
-                            entity_id: "{{ ai_task_entity }}"
-                            task_name: Analyze {{ camera_name }}
-                            instructions: "{{ analysis_prompt }}"
-                            attachments:
-                              - "{{ camera_attachment }}"
-                          response_variable: ai_single_result
+                      - service: ai_task.generate_data
+                        data:
+                          entity_id: "{{ ai_task_entity }}"
+                          task_name: Analyze {{ camera_name }}
+                          instructions: "{{ analysis_prompt }}"
+                          attachments:
+                            - media_content_id: media-source://camera/{{ current_camera }}
+                              media_content_type: image/jpeg
+                        response_variable: ai_single_result
 
                 - variables:
                     camera_results: >
@@ -382,13 +369,19 @@ sequence:
                       } %}
                       {{ r + [new] }}
 
-                - if:
-                    - condition: template
-                      value_template: "{{ repeat.index < all_cameras | length }}"
-                  then:
-                    - delay:
-                        seconds: "{{ delay_between_cameras }}"
+                # Delay giữa các camera
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ repeat.index < all_cameras | length }}"
+                      sequence:
+                        - delay:
+                            hours: 0
+                            minutes: 0
+                            seconds: "{{ delay_between_cameras }}"
+                            milliseconds: 0
 
+          # Tổng hợp kết quả
           - variables:
               summary_prompt: >
                 Summarize these camera analysis results in Vietnamese.
@@ -407,18 +400,18 @@ sequence:
                   - condition: template
                     value_template: "{{ not ai_task_entity }}"
                 sequence:
-                  - action: ai_task.generate_data
+                  - service: ai_task.generate_data
                     data:
                       task_name: Summary
                       instructions: "{{ summary_prompt }}"
                     response_variable: ai_summary_result
               default:
-                  - action: ai_task.generate_data
-                    data:
-                      entity_id: "{{ ai_task_entity }}"
-                      task_name: Summary
-                      instructions: "{{ summary_prompt }}"
-                    response_variable: ai_summary_result
+                - service: ai_task.generate_data
+                  data:
+                    entity_id: "{{ ai_task_entity }}"
+                    task_name: Summary
+                    instructions: "{{ summary_prompt }}"
+                  response_variable: ai_summary_result
 
           - variables:
               response:
@@ -428,5 +421,10 @@ sequence:
                 summary: "{{ ai_summary_result.data if ai_summary_result.data is defined else 'Không tổng hợp được' }}"
                 timestamp: "{{ now().isoformat() }}"
 
-          - stop: ''
-            response_variable: response
+  # Trả về kết quả
+  - service: system_log.write
+    data:
+      message: "Camera Analysis Result: {{ response }}"
+      level: info
+
+# mode và max_exceeded không thuộc về blueprint mà thuộc về automation
