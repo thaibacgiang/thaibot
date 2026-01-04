@@ -1,0 +1,71 @@
+blueprint:
+  name: Blueprint trống - TTS tùy biến
+  description: >
+    Blueprint khung trống để phát giọng nói TTS.
+    Người dùng tự chọn sensor / button làm trigger
+    và chọn loa phát.
+  domain: automation
+
+  input:
+    trigger_entity:
+      name: Sensor / nút kích hoạt
+      description: Entity dùng làm trigger (sensor, binary_sensor, input_button...)
+      selector:
+        entity: {}
+
+    trigger_from:
+      name: Trạng thái bắt đầu (from)
+      description: Có thể để trống nếu không cần
+      default: ""
+      selector:
+        text:
+
+    trigger_to:
+      name: Trạng thái kết thúc (to)
+      description: Có thể để trống nếu không cần
+      default: ""
+      selector:
+        text:
+
+    media_player:
+      name: Loa phát giọng nói
+      description: Chọn loa (DLNA, Google Home, ...)
+      selector:
+        entity:
+          domain: media_player
+
+    message:
+      name: Nội dung TTS
+      description: Nội dung sẽ được đọc
+      default: "Nội dung nhắc nhở"
+      selector:
+        text:
+          multiline: true
+
+    language:
+      name: Ngôn ngữ
+      default: vi
+      selector:
+        select:
+          options:
+            - vi
+            - en
+            - zh
+
+mode: single
+
+trigger:
+  - platform: state
+    entity_id: !input trigger_entity
+    from: !input trigger_from
+    to: !input trigger_to
+
+condition: []
+
+action:
+  - service: tts.google_translate_say
+    target:
+      entity_id: !input media_player
+    data:
+      message: !input message
+      language: !input language
