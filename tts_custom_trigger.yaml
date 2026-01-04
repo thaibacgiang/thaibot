@@ -1,56 +1,57 @@
 blueprint:
-  name: Blueprint trống - TTS tùy biến
+  name: Blueprint trống - TTS chọn service
   description: >
-    Blueprint khung trống để phát giọng nói TTS.
-    Người dùng tự chọn sensor / button làm trigger
-    và chọn loa phát.
+    Blueprint khung trống cho TTS.
+    Cho phép chọn sensor trigger, media_player
+    và chọn service TTS (google, cloud, notify...)
   domain: automation
 
   input:
     trigger_entity:
       name: Sensor / nút kích hoạt
-      description: Entity dùng làm trigger (sensor, binary_sensor, input_button...)
       selector:
         entity: {}
 
     trigger_from:
-      name: Trạng thái bắt đầu (from)
-      description: Có thể để trống nếu không cần
+      name: Trạng thái from (tùy chọn)
       default: ""
       selector:
         text:
 
     trigger_to:
-      name: Trạng thái kết thúc (to)
-      description: Có thể để trống nếu không cần
+      name: Trạng thái to (tùy chọn)
       default: ""
       selector:
         text:
 
+    tts_service:
+      name: Service TTS
+      description: >
+        Ví dụ:
+        - tts.google_translate_say
+        - tts.cloud_say
+        - notify.mobile_app_xxx
+      selector:
+        text:
+
     media_player:
-      name: Loa phát giọng nói
-      description: Chọn loa (DLNA, Google Home, ...)
+      name: Media Player (nếu service cần)
       selector:
         entity:
           domain: media_player
 
     message:
-      name: Nội dung TTS
-      description: Nội dung sẽ được đọc
+      name: Nội dung đọc
       default: "Nội dung nhắc nhở"
       selector:
         text:
           multiline: true
 
     language:
-      name: Ngôn ngữ
+      name: Ngôn ngữ (nếu service hỗ trợ)
       default: vi
       selector:
-        select:
-          options:
-            - vi
-            - en
-            - zh
+        text:
 
 mode: single
 
@@ -63,7 +64,7 @@ trigger:
 condition: []
 
 action:
-  - service: tts.google_translate_say
+  - service: !input tts_service
     target:
       entity_id: !input media_player
     data:
