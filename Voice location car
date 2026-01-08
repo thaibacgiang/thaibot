@@ -29,7 +29,7 @@ blueprint:
       input:
         chat_id:
           name: Chat ID / Group ID
-          description: VD: -100xxxxxxxxxx
+          description: "VD: -100xxxxxxxxxx"
           selector:
             text:
 
