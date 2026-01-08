@@ -1,14 +1,13 @@
 blueprint:
   name: Voice - Send Image to Telegram (HA 2026+)
-  author: Thaidv1 (fixed by ChatGPT)
+  author: Thaidv1 (fixed)
   description: >
     📸 Gửi ảnh từ Camera đến Telegram – tương thích Home Assistant 2026.1.0+
-    - Không dùng chat_id (đã bị loại bỏ)
+    - Không dùng chat_id
     - Dùng target theo schema mới
     - Hỗ trợ Telegram Group Forum (message_thread_id)
     - Làm sạch URL Markdown
-    - Caption fallback thông minh
-    - Không còn lỗi extra keys / LoggingUndefined
+    - Không còn lỗi extra keys
 
   domain: script
   homeassistant:
@@ -21,7 +20,9 @@ blueprint:
       input:
         target:
           name: Target (Chat / Group ID)
-          description: ID người nhận hoặc Group Telegram (ví dụ: -100xxxxxxxxxx).
+          description: >
+            ID người nhận hoặc Group Telegram.
+            Ví dụ: -1002936213456
           selector:
             text:
               multiline: false
@@ -30,7 +31,7 @@ blueprint:
           name: Message Thread ID (tuỳ chọn)
           description: >
             ID topic nếu group dạng Forum.
-            Để trống nếu gửi vào chat / group thường.
+            Để trống nếu không dùng.
           selector:
             text:
               multiline: false
@@ -38,14 +39,15 @@ blueprint:
 
         caption:
           name: Caption mặc định
-          description: Ghi chú đi kèm ảnh nếu không nhập Message riêng.
+          description: >
+            Ghi chú đi kèm ảnh nếu không nhập Message riêng.
           selector:
             text:
               multiline: true
           default: ''
 
     prompt_settings:
-      name: Cài đặt gợi ý cho AI
+      name: Cài đặt gợi ý
       icon: mdi:robot
       collapsed: true
       input:
@@ -67,21 +69,16 @@ blueprint:
           name: Gợi ý nội dung tin nhắn
           description: >
             Mô tả ảnh hoặc tên camera.
-            Ví dụ: "Ảnh từ Camera cửa trước"
+            Ví dụ: Ảnh từ Camera cửa trước
           selector:
             text:
               multiline: true
           default: >
-            "Ảnh từ Camera cửa trước" hoặc "Camera cam_cua_truoc snapshot"
-
-  source_url: https://github.com/thaibacgiang/thaibot/blob/main/send_image_to_telegram.yaml
+            Ảnh từ Camera cửa trước
 
 mode: queued
 max: 30
 max_exceeded: silent
-
-variables:
-  version: 202601
 
 fields:
   image_path:
@@ -98,21 +95,17 @@ fields:
       text:
 
 sequence:
-  - alias: "🧹 Chuẩn hoá dữ liệu đầu vào"
+  - alias: "🧹 Chuẩn hoá dữ liệu"
     variables:
-      raw_path: "{{ image_path | default('') | trim }}"
-
-      # Loại bỏ markdown kiểu [text](url)
+      raw_path: "{{ image_path | trim }}"
       clean_path: >
         {% if '(' in raw_path and ')' in raw_path %}
           {{ raw_path | regex_replace('\\[.*?\\]\\((.*?)\\)', '\\1') }}
         {% else %}
           {{ raw_path }}
         {% endif %}
-
       final_caption: >
-        {{ message if message | default('') | length > 0
-           else (caption | default('')) }}
+        {{ message if message | default('') | length > 0 else (caption | default('')) }}
 
   - alias: "📤 Gửi ảnh đến Telegram"
     action: telegram_bot.send_photo
@@ -123,24 +116,3 @@ sequence:
       {% if message_thread_id | default('') | length > 0 %}
       message_thread_id: "{{ message_thread_id }}"
       {% endif %}
-    response_variable: telegram_result
-
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ telegram_result is defined and telegram_result is not none }}
-        sequence:
-          - variables:
-              response:
-                data:
-                  status: "✅ Thành công"
-                  message: "Ảnh đã được gửi đến Telegram"
-    default:
-      - variables:
-          response:
-            data:
-              status: "❌ Thất bại"
-              message: "Không thể gửi ảnh – kiểm tra URL hoặc Telegram"
-
-  - stop: "{{ response }}"
