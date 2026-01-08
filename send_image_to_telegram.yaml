@@ -1,30 +1,44 @@
 blueprint:
-  name: Voice - Send Image to Telegram
-  author: Thaidv1
+  name: Voice - Send Image to Telegram (HA 2026+)
+  author: Thaidv1 (fixed by ChatGPT)
   description: >
-    📸 Gửi ảnh từ Camera đến Telegram — phiên bản sửa lỗi hoàn toàn.
-    - Hỗ trợ lọc URL Markdown.
-    - Không còn lỗi LoggingUndefined.
-    - Hiển thị caption rõ ràng và thân thiện.
+    📸 Gửi ảnh từ Camera đến Telegram – tương thích Home Assistant 2026.1.0+
+    - Không dùng chat_id (đã bị loại bỏ)
+    - Dùng target theo schema mới
+    - Hỗ trợ Telegram Group Forum (message_thread_id)
+    - Làm sạch URL Markdown
+    - Caption fallback thông minh
+    - Không còn lỗi extra keys / LoggingUndefined
 
   domain: script
   homeassistant:
-    min_version: 2024.10.0
+    min_version: 2026.1.0
 
   input:
     telegram_settings:
       name: Cài đặt Telegram
       icon: mdi:telegram
       input:
-        chat_id:
-          name: Chat ID
-          description: ID nhóm hoặc người nhận ảnh.
+        target:
+          name: Target (Chat / Group ID)
+          description: ID người nhận hoặc Group Telegram (ví dụ: -100xxxxxxxxxx).
           selector:
             text:
               multiline: false
+
+        message_thread_id:
+          name: Message Thread ID (tuỳ chọn)
+          description: >
+            ID topic nếu group dạng Forum.
+            Để trống nếu gửi vào chat / group thường.
+          selector:
+            text:
+              multiline: false
+          default: ''
+
         caption:
           name: Caption mặc định
-          description: Ghi chú đi kèm ảnh (nếu không có message riêng).
+          description: Ghi chú đi kèm ảnh nếu không nhập Message riêng.
           selector:
             text:
               multiline: true
@@ -38,8 +52,9 @@ blueprint:
         image_path_prompt:
           name: Gợi ý đường dẫn ảnh
           description: >
-            Gợi ý giúp AI biết chọn URL camera nào. Nhập URL ảnh hợp lệ (http/https),
-            ví dụ: http://192.168.1.23:1984/api/frame.jpeg?src=cam_cua_truoc
+            Nhập URL ảnh hợp lệ (http/https).
+            Ví dụ:
+            http://192.168.1.23:1984/api/frame.jpeg?src=cam_cua_truoc
           selector:
             text:
               multiline: true
@@ -47,10 +62,12 @@ blueprint:
             - Nhà xe: http://192.168.1.23:1984/api/frame.jpeg?src=cam_nha_xe
             - Cửa trước: http://192.168.1.23:1984/api/frame.jpeg?src=cam_cua_truoc
             - Phòng khách: http://192.168.1.23:1984/api/frame.jpeg?src=cam_phong_khach
+
         message_prompt:
           name: Gợi ý nội dung tin nhắn
           description: >
-            Nhập tên camera hoặc mô tả ảnh. VD: "Ảnh từ Camera cửa trước"
+            Mô tả ảnh hoặc tên camera.
+            Ví dụ: "Ảnh từ Camera cửa trước"
           selector:
             text:
               multiline: true
@@ -64,7 +81,7 @@ max: 30
 max_exceeded: silent
 
 variables:
-  version: 20251024
+  version: 202601
 
 fields:
   image_path:
@@ -81,29 +98,38 @@ fields:
       text:
 
 sequence:
-  - variables:
+  - alias: "🧹 Chuẩn hoá dữ liệu đầu vào"
+    variables:
       raw_path: "{{ image_path | default('') | trim }}"
-      # Xóa định dạng Markdown kiểu [url](url)
+
+      # Loại bỏ markdown kiểu [text](url)
       clean_path: >
         {% if '(' in raw_path and ')' in raw_path %}
           {{ raw_path | regex_replace('\\[.*?\\]\\((.*?)\\)', '\\1') }}
         {% else %}
           {{ raw_path }}
         {% endif %}
-      final_caption: "{{ message if message|length > 0 else (caption | default('')) }}"
+
+      final_caption: >
+        {{ message if message | default('') | length > 0
+           else (caption | default('')) }}
 
   - alias: "📤 Gửi ảnh đến Telegram"
     action: telegram_bot.send_photo
     data:
-      chat_id: !input chat_id
+      target: !input target
       url: "{{ clean_path }}"
       caption: "{{ final_caption }}"
+      {% if message_thread_id | default('') | length > 0 %}
+      message_thread_id: "{{ message_thread_id }}"
+      {% endif %}
     response_variable: telegram_result
 
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ telegram_result is defined and telegram_result is not none }}"
+            value_template: >
+              {{ telegram_result is defined and telegram_result is not none }}
         sequence:
           - variables:
               response:
@@ -115,6 +141,6 @@ sequence:
           response:
             data:
               status: "❌ Thất bại"
-              message: "Không thể gửi ảnh – kiểm tra lại URL hoặc kết nối Telegram"
+              message: "Không thể gửi ảnh – kiểm tra URL hoặc Telegram"
 
   - stop: "{{ response }}"
