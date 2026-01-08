@@ -3,10 +3,8 @@ blueprint:
   author: Thaidv1
   description: >
     📍 Gửi vị trí từ device_tracker lên Telegram —
-    phiên bản tương thích HA 2026.1.0.
-    - Dùng target (schema mới).
-    - Không dùng chat_id.
-    - An toàn template, không lỗi YAML.
+    tương thích HA 2026.1.0.
+    Dùng target (schema mới), không chat_id.
 
   domain: script
   homeassistant:
@@ -34,7 +32,6 @@ blueprint:
           name: Device Tracker
           description: >
             Chọn device_tracker cần gửi vị trí.
-            Ví dụ: device_tracker.vinfast_vf6_location
           selector:
             entity:
               domain: device_tracker
@@ -53,13 +50,12 @@ mode: queued
 max: 30
 max_exceeded: silent
 
-fields: {}
-
 sequence:
   - alias: "📍 Lấy toạ độ từ device_tracker"
     variables:
-      lat: "{{ state_attr(tracker_entity, 'latitude') }}"
-      lon: "{{ state_attr(tracker_entity, 'longitude') }}"
+      tracker: !input tracker_entity
+      lat: "{{ state_attr(tracker, 'latitude') }}"
+      lon: "{{ state_attr(tracker, 'longitude') }}"
 
   - alias: "📤 Gửi vị trí đến Telegram"
     action: telegram_bot.send_location
