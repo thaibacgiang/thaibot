@@ -2,9 +2,9 @@ blueprint:
   name: Voice - Send Location to Telegram
   author: Thaidv1
   description: >
-    📍 Gửi vị trí từ device_tracker lên Telegram —
-    tương thích HA 2026.1.0.
-    Dùng target (schema mới), không chat_id.
+    📍 Gửi vị trí từ device_tracker lên Telegram
+    (kèm tin nhắn + link Google Maps).
+    Tương thích HA 2026.1.0+
 
   domain: script
   homeassistant:
@@ -18,11 +18,10 @@ blueprint:
         target:
           name: Target (Chat / Group ID)
           description: >
-            ID nhóm hoặc người nhận vị trí.
+            ID nhóm hoặc người nhận.
             Ví dụ: -1002936213456
           selector:
             text:
-              multiline: false
 
     location_settings:
       name: Cài đặt vị trí
@@ -30,52 +29,40 @@ blueprint:
       input:
         tracker_entity:
           name: Device Tracker
-          description: >
-            Chọn device_tracker cần gửi vị trí.
           selector:
             entity:
               domain: device_tracker
-              multiple: false
 
         message:
           name: Nội dung kèm theo
-          description: >
-            Tin nhắn gửi kèm vị trí (tuỳ chọn).
+          default: "🚗 Vị trí hiện tại của xe"
           selector:
             text:
               multiline: true
-          default: "🚗 Vị trí hiện tại"
 
 mode: queued
 max: 30
 max_exceeded: silent
 
 sequence:
-  - alias: "📍 Lấy toạ độ từ device_tracker"
+  - alias: "📍 Lấy dữ liệu"
     variables:
       tracker: !input tracker_entity
+      message: !input message
       lat: "{{ state_attr(tracker, 'latitude') }}"
       lon: "{{ state_attr(tracker, 'longitude') }}"
 
-  - alias: "📤 Gửi vị trí đến Telegram"
+  - alias: "📤 Gửi vị trí"
     action: telegram_bot.send_location
     data:
       target: !input target
       latitude: "{{ lat }}"
       longitude: "{{ lon }}"
-    response_variable: telegram_result
 
-  - choose:
-      - conditions:
-          - condition: template
-            value_template: >
-              {{ telegram_result is defined and telegram_result is not none }}
-        sequence:
-          - action: telegram_bot.send_message
-            data:
-              target: !input target
-              message: >
-                {{ message }}
-                https://maps.google.com/?q={{ lat }},{{ lon }}
-
-  - stop: "done"
+  - alias: "💬 Gửi tin nhắn kèm link"
+    action: telegram_bot.send_message
+    data:
+      target: !input target
+      message: >
+        {{ message }}
+        📍 https://maps.google.com/?q={{ lat }},{{ lon }}
