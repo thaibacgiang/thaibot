@@ -1,13 +1,13 @@
 blueprint:
   name: Voice - Send Image to Telegram (HA 2026+)
-  author: Thaidv1 (fixed)
+  author: Thaidv1 (fixed & stabilized)
   description: >
     📸 Gửi ảnh từ Camera đến Telegram – tương thích Home Assistant 2026.1.0+
     - Không dùng chat_id
     - Dùng target theo schema mới
-    - Hỗ trợ Telegram Group Forum (message_thread_id)
-    - Làm sạch URL Markdown
-    - Không còn lỗi extra keys
+    - Hỗ trợ Telegram Group Forum (topic)
+    - Không lỗi YAML / Jinja
+    - Import được ngay
 
   domain: script
   homeassistant:
@@ -25,7 +25,6 @@ blueprint:
             Ví dụ: -1002936213456
           selector:
             text:
-              multiline: false
 
         message_thread_id:
           name: Message Thread ID (tuỳ chọn)
@@ -34,47 +33,14 @@ blueprint:
             Để trống nếu không dùng.
           selector:
             text:
-              multiline: false
           default: ''
 
         caption:
           name: Caption mặc định
-          description: >
-            Ghi chú đi kèm ảnh nếu không nhập Message riêng.
           selector:
             text:
               multiline: true
           default: ''
-
-    prompt_settings:
-      name: Cài đặt gợi ý
-      icon: mdi:robot
-      collapsed: true
-      input:
-        image_path_prompt:
-          name: Gợi ý đường dẫn ảnh
-          description: >
-            Nhập URL ảnh hợp lệ (http/https).
-            Ví dụ:
-            http://192.168.1.23:1984/api/frame.jpeg?src=cam_cua_truoc
-          selector:
-            text:
-              multiline: true
-          default: >
-            - Nhà xe: http://192.168.1.23:1984/api/frame.jpeg?src=cam_nha_xe
-            - Cửa trước: http://192.168.1.23:1984/api/frame.jpeg?src=cam_cua_truoc
-            - Phòng khách: http://192.168.1.23:1984/api/frame.jpeg?src=cam_phong_khach
-
-        message_prompt:
-          name: Gợi ý nội dung tin nhắn
-          description: >
-            Mô tả ảnh hoặc tên camera.
-            Ví dụ: Ảnh từ Camera cửa trước
-          selector:
-            text:
-              multiline: true
-          default: >
-            Ảnh từ Camera cửa trước
 
 mode: queued
 max: 30
@@ -82,37 +48,48 @@ max_exceeded: silent
 
 fields:
   image_path:
-    name: Image Path
-    description: !input image_path_prompt
+    name: Image URL
     selector:
       text:
     required: true
 
   message:
     name: Message
-    description: !input message_prompt
     selector:
       text:
 
 sequence:
   - alias: "🧹 Chuẩn hoá dữ liệu"
     variables:
-      raw_path: "{{ image_path | trim }}"
       clean_path: >
-        {% if '(' in raw_path and ')' in raw_path %}
-          {{ raw_path | regex_replace('\\[.*?\\]\\((.*?)\\)', '\\1') }}
+        {% set raw = image_path | trim %}
+        {% if '(' in raw and ')' in raw %}
+          {{ raw | regex_replace('\\[.*?\\]\\((.*?)\\)', '\\1') }}
         {% else %}
-          {{ raw_path }}
+          {{ raw }}
         {% endif %}
       final_caption: >
         {{ message if message | default('') | length > 0 else (caption | default('')) }}
 
-  - alias: "📤 Gửi ảnh đến Telegram"
-    action: telegram_bot.send_photo
-    data:
-      target: !input target
-      url: "{{ clean_path }}"
-      caption: "{{ final_caption }}"
-      {% if message_thread_id | default('') | length > 0 %}
-      message_thread_id: "{{ message_thread_id }}"
-      {% endif %}
+  - alias: "📤 Gửi ảnh Telegram (không topic)"
+    choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ message_thread_id | default('') | length == 0 }}"
+        sequence:
+          - action: telegram_bot.send_photo
+            data:
+              target: !input target
+              url: "{{ clean_path }}"
+              caption: "{{ final_caption }}"
+
+      - conditions:
+          - condition: template
+            value_template: "{{ message_thread_id | default('') | length > 0 }}"
+        sequence:
+          - action: telegram_bot.send_photo
+            data:
+              target: !input target
+              message_thread_id: !input message_thread_id
+              url: "{{ clean_path }}"
+              caption: "{{ final_caption }}"
