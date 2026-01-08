@@ -1,0 +1,132 @@
+blueprint:
+  name: Voice – Send Image / Location to Telegram (HA 2026)
+  author: Thaidv + ChatGPT
+  description: >
+    📦 Blueprint gửi Telegram đa năng:
+    - 📍 Gửi vị trí từ device_tracker (xe, điện thoại…)
+    - 📸 Gửi ảnh camera qua URL
+    - 💬 Gửi tin nhắn thường
+    Tương thích Home Assistant 2026.x (Telegram config_entry_id)
+
+  domain: script
+
+  homeassistant:
+    min_version: 2026.1.0
+
+  input:
+    telegram_config:
+      name: 🔐 Telegram Bot
+      icon: mdi:telegram
+      input:
+        config_entry_id:
+          name: Telegram Config Entry ID
+          description: ID của Telegram integration (bắt buộc)
+          selector:
+            text:
+
+    target_chat:
+      name: 💬 Chat nhận tin
+      input:
+        chat_id:
+          name: Chat ID / Group ID
+          description: VD: -100xxxxxxxxxx
+          selector:
+            text:
+
+    vehicle_tracker:
+      name: 📍 Device Tracker (tuỳ chọn)
+      description: Nếu chọn → có thể gửi vị trí
+      default: ""
+      selector:
+        entity:
+          domain: device_tracker
+          multiple: false
+
+    camera_image:
+      name: 📸 URL ảnh camera (tuỳ chọn)
+      description: URL snapshot camera (http/https)
+      default: ""
+      selector:
+        text:
+
+    message_text:
+      name: 💬 Nội dung tin nhắn
+      description: Nội dung gửi Telegram
+      default: ""
+      selector:
+        text:
+          multiline: true
+
+mode: queued
+max: 10
+max_exceeded: silent
+
+variables:
+  tracker: !input vehicle_tracker
+  image_url_raw: !input camera_image
+  msg: !input message_text
+
+  lat: >
+    {% if tracker %}
+      {{ state_attr(tracker, 'latitude') }}
+    {% endif %}
+
+  lon: >
+    {% if tracker %}
+      {{ state_attr(tracker, 'longitude') }}
+    {% endif %}
+
+  has_location: >
+    {{ lat is not none and lon is not none }}
+
+  clean_image_url: >
+    {% if image_url_raw %}
+      {{ image_url_raw | regex_replace('\\[.*?\\]\\((.*?)\\)', '\\1') }}
+    {% endif %}
+
+sequence:
+  # 1️⃣ Ưu tiên gửi vị trí nếu có device_tracker
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ has_location }}"
+        sequence:
+          - action: telegram_bot.send_location
+            data:
+              config_entry_id: !input config_entry_id
+              chat_id: !input chat_id
+              latitude: "{{ lat }}"
+              longitude: "{{ lon }}"
+
+          - action: telegram_bot.send_message
+            data:
+              config_entry_id: !input config_entry_id
+              chat_id: !input chat_id
+              message: |
+                🚗 *Vị trí hiện tại*
+                🌍 https://maps.google.com/?q={{ lat }},{{ lon }}
+
+  # 2️⃣ Nếu không có vị trí → gửi ảnh
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ clean_image_url | length > 5 }}"
+        sequence:
+          - action: telegram_bot.send_photo
+            data:
+              config_entry_id: !input config_entry_id
+              chat_id: !input chat_id
+              url: "{{ clean_image_url }}"
+              caption: "{{ msg }}"
+
+  # 3️⃣ Cuối cùng: gửi text nếu có
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ msg | length > 0 }}"
+        sequence:
+          - action: telegram_bot.send_message
+            data:
+              config_entry_id: !input config_entry_id
+              chat_id: !input chat_id
+              message: "{{ msg }}"
