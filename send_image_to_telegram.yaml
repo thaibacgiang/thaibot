@@ -2,10 +2,7 @@ blueprint:
   name: Voice - Send Image to Telegram
   author: Thaidv1
   description: >
-    📸 Gửi ảnh từ Camera đến Telegram — phiên bản tương thích HA 2026.1.0.
-    - Hỗ trợ lọc URL Markdown.
-    - Không còn lỗi LoggingUndefined.
-    - Dùng target thay cho chat_id (schema mới).
+    📸 Gửi ảnh từ Camera đến Telegram — phiên bản dùng chat_id.
 
   domain: script
   homeassistant:
@@ -16,8 +13,8 @@ blueprint:
       name: Cài đặt Telegram
       icon: mdi:telegram
       input:
-        target:
-          name: Target (Chat / Group ID)
+        chat_id:
+          name: Chat ID
           description: >
             ID nhóm hoặc người nhận ảnh.
             Ví dụ: -1002936213456
@@ -27,8 +24,6 @@ blueprint:
 
         caption:
           name: Caption mặc định
-          description: >
-            Ghi chú đi kèm ảnh (nếu không có message riêng).
           selector:
             text:
               multiline: true
@@ -41,9 +36,6 @@ blueprint:
       input:
         image_path_prompt:
           name: Gợi ý đường dẫn ảnh
-          description: >
-            Gợi ý giúp AI biết chọn URL camera nào.
-            Nhập URL ảnh hợp lệ (http/https).
           selector:
             text:
               multiline: true
@@ -54,15 +46,11 @@ blueprint:
 
         message_prompt:
           name: Gợi ý nội dung tin nhắn
-          description: >
-            Nhập tên camera hoặc mô tả ảnh.
           selector:
             text:
               multiline: true
           default: >
             Ảnh từ Camera cửa trước
-
-  source_url: https://github.com/thaibacgiang/thaibot/blob/main/send_image_to_telegram.yaml
 
 mode: queued
 max: 30
@@ -99,7 +87,7 @@ sequence:
   - alias: "📤 Gửi ảnh đến Telegram"
     action: telegram_bot.send_photo
     data:
-      target: !input target
+      chat_id: !input chat_id
       url: "{{ clean_path }}"
       caption: "{{ final_caption }}"
     response_variable: telegram_result
