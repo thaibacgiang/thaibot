@@ -15,8 +15,8 @@ blueprint:
       name: Cài đặt Telegram
       icon: mdi:telegram
       input:
-        target:
-          name: Target (Chat / Group ID)
+        chat_id:
+          name: chat_id (Chat / Group ID)
           description: >
             ID nhóm hoặc người nhận.
             Ví dụ: -1002936213456
@@ -55,14 +55,14 @@ sequence:
   - alias: "📤 Gửi vị trí"
     action: telegram_bot.send_location
     data:
-      target: !input target
+      chat_id: !input chat_id
       latitude: "{{ lat }}"
       longitude: "{{ lon }}"
 
   - alias: "💬 Gửi tin nhắn kèm link"
     action: telegram_bot.send_message
     data:
-      target: !input target
+      chat_id: !input chat_id
       message: >
         {{ message }}
         📍 https://maps.google.com/?q={{ lat }},{{ lon }}
