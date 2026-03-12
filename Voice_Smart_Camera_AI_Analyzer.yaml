@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Smart Camera Analyzer (Single + Sequential)
-  author: benbap_fixed
+  author: thai_fixed
   description: 'Tự động phát hiện: - Hỏi 1 camera → Trả lời trực tiếp - Hỏi nhiều camera → Phân tích tuần tự rồi tổng hợp'
   domain: script
   homeassistant:
