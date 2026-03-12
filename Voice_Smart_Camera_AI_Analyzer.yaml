@@ -114,7 +114,11 @@ sequence:
       {% if 'phòng master' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
         {{ cam }}
       {% endif %}
-    {% endfor %}{%
+    {% endfor %}\n{% elif 'phòng bếp' in user_question_lc %}
+    {% for cam in all_cameras %}
+      {% if 'phòng bếp' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
+        {{ cam }}
+    {%
       else %}\n  {{ '' }}\n{% endif %}"
     final_camera: "{% if matched_camera_from_friendly %}\n  {{ matched_camera_from_friendly
       }}\n{% elif matched_camera_from_alias %}\n  {{ matched_camera_from_alias }}\n{%
