@@ -102,25 +102,37 @@ sequence:
       | default([]) %}\n  {% if 'camera.' in eid %}\n    {% for a in als %}\n      {%
       if (a | lower) == ql or (ql in (a | lower)) %}\n        {% set found = eid %}\n
       \     {% endif %}\n    {% endfor %}\n  {% endif %}\n{% endfor %} {{ found }}"
-    guessed_camera: "{% if 'phòng khách' in user_question_lc %}\n  {% for cam in all_cameras
-      %}\n    {% if 'phòng khách' in (state_attr(cam, 'friendly_name') | default('')
-      | lower) %}\n      {{ cam }}\n    {% endif %}\n  {% endfor %}\n{% elif 'nhà
-      xe' in user_question_lc %}\n  {% for cam in all_cameras %}\n    {% if 'nhà
-      xe' in (state_attr(cam, 'friendly_name') | default('') | lower) %}\n      {{
-      cam }}\n    {% endif %}\n  {% endfor %}\n{% elif 'cửa trước' in user_question_lc %}\n
-      \ {% for cam in all_cameras %}\n    {% if 'cửa trước' in (state_attr(cam, 'friendly_name')
-      | default('') | lower) %}\n      {{ cam }}\n    {% endif %}\n  {% endfor %}\n{% elif 'phòng master' in user_question_lc %}
-    {% for cam in all_cameras %}
-      {% if 'phòng master' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
-        {{ cam }}
-      {% endif %}
-    {% endfor %}\n{% elif 'phòng bếp' in user_question_lc %}
-    {% for cam in all_cameras %}
-      {% if 'phòng bếp' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
-        {{ cam }}
-      {% endif %}
-    {%
-      else %}\n  {{ '' }}\n{% endif %}"
+    guessed_camera: >
+      {% set q = user_question_lc %}
+
+      {# ===== MAP TÊN PHÒNG → CAMERA ===== #}
+      {% set room_map = {
+        'phòng khách': 'phòng khách',
+        'nhà xe': 'nhà xe',
+        'gara': 'nhà xe',
+        'garage': 'nhà xe',
+        'cửa trước': 'cửa trước',
+        'phòng master': 'phòng master',
+        'master': 'phòng master',
+        'phòng bếp': 'phòng bếp',
+        'bếp': 'phòng bếp'
+      } %}
+
+      {% set result = '' %}
+
+      {# ===== TÌM CAMERA THEO CÂU HỎI ===== #}
+      {% for keyword, room in room_map.items() %}
+        {% if keyword in q %}
+          {% for cam in all_cameras %}
+            {% set fname = state_attr(cam,'friendly_name') | default('') | lower %}
+            {% if room in fname %}
+              {% set result = cam %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
+      {% endfor %}
+
+      {{ result }}
     final_camera: "{% if matched_camera_from_friendly %}\n  {{ matched_camera_from_friendly
       }}\n{% elif matched_camera_from_alias %}\n  {{ matched_camera_from_alias }}\n{%
       elif guessed_camera %}\n  {{ guessed_camera }}\n{% else %}\n  {{ '' }}\n{% endif
