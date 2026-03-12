@@ -1,52 +1,41 @@
 blueprint:
   name: Voice - Smart Camera Analyzer (Single + Sequential)
-  author: benbap_fixed
+  author: thai_fixed
   description: 'Tự động phát hiện: - Hỏi 1 camera → Trả lời trực tiếp - Hỏi nhiều camera → Phân tích tuần tự rồi tổng hợp'
   domain: script
   homeassistant:
     min_version: 2025.8.0
 
 input:
-  entity_aliases_settings:
-    name: Settings for Entity Aliases
-    icon: mdi:format-list-bulleted
-    input:
-      entity_aliases:
-        name: Entity Aliases
-        selector:
-          entity:
-            filter:
-              - domain:
-                - sensor
-                integration: template
-            multiple: false
-            reorder: false
-
-  ai_task_settings:
-    name: AI Task Settings
-    icon: mdi:robot-outline
-    collapsed: true
-    input:
-      ai_task_entity:
-        name: AI Task Entity
-        selector:
-          entity:
-            filter:
-              - domain:
-                - ai_task
-            multiple: false
-            reorder: false
-      delay_between_cameras:
-        name: Delay Between Cameras (seconds)
-        description: Chỉ dùng khi phân tích nhiều camera
-        selector:
-          number:
-            min: 0.0
-            max: 10.0
-            step: 0.5
-            unit_of_measurement: s
-            mode: slider
-        default: 1
+  entity_aliases:
+    name: Entity Aliases
+    description: Chọn sensor chứa entity aliases
+    selector:
+      entity:
+        domain: sensor
+        multiple: false
+    default: ~
+  
+  ai_task_entity:
+    name: AI Task Entity
+    description: Chọn AI task entity (nếu có)
+    selector:
+      entity:
+        domain: ai_task
+        multiple: false
+    default: ~
+  
+  delay_between_cameras:
+    name: Delay Between Cameras (seconds)
+    description: Chỉ dùng khi phân tích nhiều camera
+    selector:
+      number:
+        min: 0.0
+        max: 10.0
+        step: 0.5
+        unit_of_measurement: s
+        mode: slider
+    default: 1
 
 source_url: https://github.com/thaibacgiang/thaibot/edit/main/Voice_Smart_Camera_AI_Analyzer.yaml
 mode: parallel
@@ -73,7 +62,8 @@ sequence:
         value_template: '{{ not question }}'
     then:
       - stop: Missing question
-        response_variable: { error: "Vui lòng nhập câu hỏi" }
+        response_variable:
+          error: "Vui lòng nhập câu hỏi"
 
   - variables:
       cameras: >
@@ -92,7 +82,7 @@ sequence:
         {% set ns = namespace(found='') %}
         {% for cam in cameras %}
           {% set fn = state_attr(cam, 'friendly_name') | default('') | trim | lower %}
-          {% if fn and (fn == q_lower or fn in q_lower) %}
+          {% if fn and (fn == q_lower or q_lower in fn) %}
             {% set ns.found = cam %}
           {% endif %}
         {% endfor %}
@@ -100,16 +90,18 @@ sequence:
 
       cam_by_alias: >
         {% set ns = namespace(found='') %}
-        {% for item in state_attr(entity_aliases, 'entities') | default([]) %}
-          {% if 'camera.' in item.entity_id %}
-            {% for alias in item.aliases | default([]) %}
-              {% set a_lower = alias | lower %}
-              {% if a_lower == q_lower or a_lower in q_lower %}
-                {% set ns.found = item.entity_id %}
-              {% endif %}
-            {% endfor %}
-          {% endif %}
-        {% endfor %}
+        {% if entity_aliases %}
+          {% for item in state_attr(entity_aliases, 'entities') | default([]) %}
+            {% if 'camera.' in item.entity_id %}
+              {% for alias in item.aliases | default([]) %}
+                {% set a_lower = alias | lower %}
+                {% if a_lower == q_lower or q_lower in a_lower %}
+                  {% set ns.found = item.entity_id %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+          {% endfor %}
+        {% endif %}
         {{ ns.found }}
 
       cam_by_guess: >
@@ -158,7 +150,7 @@ sequence:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: '{{ ai_task_entity }}'
+                    value_template: '{{ ai_task_entity is not none }}'
                 sequence:
                   - action: ai_task.generate_data
                     data:
@@ -170,7 +162,7 @@ sequence:
                     response_variable: result
               - conditions:
                   - condition: template
-                    value_template: '{{ not ai_task_entity }}'
+                    value_template: '{{ ai_task_entity is none }}'
                 sequence:
                   - action: ai_task.generate_data
                     data:
@@ -185,7 +177,7 @@ sequence:
               mode: single
               camera: '{{ matched_camera }}'
               camera_name: '{{ cam_name }}'
-              answer: '{{ result.data | default("Lỗi phân tích") }}'
+              answer: '{{ result.data if result.data is defined else "Lỗi phân tích" }}'
               timestamp: '{{ now().isoformat() }}'
 
       # MULTI CAMERA MODE
@@ -196,7 +188,8 @@ sequence:
                 value_template: '{{ cameras | length == 0 }}'
             then:
               - stop: No cameras
-                response_variable: { error: "Không tìm thấy camera nào" }
+                response_variable:
+                  error: "Không tìm thấy camera nào"
 
           - variables:
               analysis_prompt: >
@@ -224,7 +217,7 @@ sequence:
                 - choose:
                     - conditions:
                         - condition: template
-                          value_template: '{{ ai_task_entity }}'
+                          value_template: '{{ ai_task_entity is not none }}'
                       sequence:
                         - action: ai_task.generate_data
                           data:
@@ -236,7 +229,7 @@ sequence:
                           response_variable: single_result
                     - conditions:
                         - condition: template
-                          value_template: '{{ not ai_task_entity }}'
+                          value_template: '{{ ai_task_entity is none }}'
                       sequence:
                         - action: ai_task.generate_data
                           data:
@@ -248,12 +241,21 @@ sequence:
 
                 - variables:
                     results: >
-                      {{ results + [{
-                        'camera': current,
-                        'camera_name': cam_name,
-                        'analysis': single_result.data | default('Lỗi'),
-                        'timestamp': now().isoformat()
-                      }] }}
+                      {% if single_result.data is defined %}
+                        {{ results + [{
+                          'camera': current,
+                          'camera_name': cam_name,
+                          'analysis': single_result.data,
+                          'timestamp': now().isoformat()
+                        }] }}
+                      {% else %}
+                        {{ results + [{
+                          'camera': current,
+                          'camera_name': cam_name,
+                          'analysis': 'Lỗi phân tích',
+                          'timestamp': now().isoformat()
+                        }] }}
+                      {% endif %}
 
                 - if:
                     - condition: template
@@ -278,7 +280,7 @@ sequence:
           - choose:
               - conditions:
                   - condition: template
-                    value_template: '{{ ai_task_entity }}'
+                    value_template: '{{ ai_task_entity is not none }}'
                 sequence:
                   - action: ai_task.generate_data
                     data:
@@ -288,7 +290,7 @@ sequence:
                     response_variable: summary_result
               - conditions:
                   - condition: template
-                    value_template: '{{ not ai_task_entity }}'
+                    value_template: '{{ ai_task_entity is none }}'
                 sequence:
                   - action: ai_task.generate_data
                     data:
@@ -301,5 +303,5 @@ sequence:
               mode: multi
               camera_count: '{{ cameras | length }}'
               individual_results: '{{ results }}'
-              summary: '{{ summary_result.data | default("Không tổng hợp được") }}'
+              summary: '{{ summary_result.data if summary_result.data is defined else "Không tổng hợp được" }}'
               timestamp: '{{ now().isoformat() }}'
