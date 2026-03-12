@@ -118,6 +118,7 @@ sequence:
     {% for cam in all_cameras %}
       {% if 'phòng bếp' in (state_attr(cam, 'friendly_name') | default('') | lower) %}
         {{ cam }}
+      {% endif %}
     {%
       else %}\n  {{ '' }}\n{% endif %}"
     final_camera: "{% if matched_camera_from_friendly %}\n  {{ matched_camera_from_friendly
