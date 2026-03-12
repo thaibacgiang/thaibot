@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Smart Camera Analyzer (Single + Sequential)
-  author: thai_fixed
+  author: benbap_fixed
   description: 'Tự động phát hiện: - Hỏi 1 camera → Trả lời trực tiếp - Hỏi nhiều camera → Phân tích tuần tự rồi tổng hợp'
   domain: script
   homeassistant:
@@ -88,7 +88,6 @@ sequence:
             'các camera', 'which cameras', 'check all', 'toàn bộ'] 
            | select('in', q_lower) | list | count > 0 }}
 
-      # Tìm camera theo friendly name
       cam_by_friendly: >
         {% set ns = namespace(found='') %}
         {% for cam in cameras %}
@@ -99,7 +98,6 @@ sequence:
         {% endfor %}
         {{ ns.found }}
 
-      # Tìm camera theo alias
       cam_by_alias: >
         {% set ns = namespace(found='') %}
         {% for item in state_attr(entity_aliases, 'entities') | default([]) %}
@@ -114,7 +112,6 @@ sequence:
         {% endfor %}
         {{ ns.found }}
 
-      # Tìm camera theo keyword guess
       cam_by_guess: >
         {% set ns = namespace(found='') %}
         {% set keywords = ['phòng khách', 'nhà xe', 'cửa trước', 'phòng master', 'phòng bếp'] %}
@@ -129,10 +126,7 @@ sequence:
         {% endfor %}
         {{ ns.found }}
 
-      # Chọn camera theo thứ tự ưu tiên: friendly > alias > guess
       matched_camera: '{{ cam_by_friendly or cam_by_alias or cam_by_guess }}'
-
-      # Xác định mode: single nếu tìm thấy camera cụ thể và không phải multi request
       mode: '{{ "single" if matched_camera and not is_multi else "multi" }}'
 
   - choose:
@@ -161,16 +155,30 @@ sequence:
                   title: '{{ cam_name }}'
                   media_class: image
 
-          - action: ai_task.generate_data
-            data:
-              {% if ai_task_entity %}
-              entity_id: '{{ ai_task_entity }}'
-              {% endif %}
-              task_name: Analyze {{ cam_name }}
-              instructions: '{{ prompt }}'
-              attachments:
-                - '{{ attachment }}'
-            response_variable: result
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: '{{ ai_task_entity }}'
+                sequence:
+                  - action: ai_task.generate_data
+                    data:
+                      entity_id: '{{ ai_task_entity }}'
+                      task_name: Analyze {{ cam_name }}
+                      instructions: '{{ prompt }}'
+                      attachments:
+                        - '{{ attachment }}'
+                    response_variable: result
+              - conditions:
+                  - condition: template
+                    value_template: '{{ not ai_task_entity }}'
+                sequence:
+                  - action: ai_task.generate_data
+                    data:
+                      task_name: Analyze {{ cam_name }}
+                      instructions: '{{ prompt }}'
+                      attachments:
+                        - '{{ attachment }}'
+                    response_variable: result
 
           - stop: ''
             response_variable:
@@ -213,16 +221,30 @@ sequence:
                         title: '{{ cam_name }}'
                         media_class: image
 
-                - action: ai_task.generate_data
-                  data:
-                    {% if ai_task_entity %}
-                    entity_id: '{{ ai_task_entity }}'
-                    {% endif %}
-                    task_name: Analyze {{ cam_name }}
-                    instructions: '{{ analysis_prompt }}'
-                    attachments:
-                      - '{{ attachment }}'
-                  response_variable: single_result
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: '{{ ai_task_entity }}'
+                      sequence:
+                        - action: ai_task.generate_data
+                          data:
+                            entity_id: '{{ ai_task_entity }}'
+                            task_name: Analyze {{ cam_name }}
+                            instructions: '{{ analysis_prompt }}'
+                            attachments:
+                              - '{{ attachment }}'
+                          response_variable: single_result
+                    - conditions:
+                        - condition: template
+                          value_template: '{{ not ai_task_entity }}'
+                      sequence:
+                        - action: ai_task.generate_data
+                          data:
+                            task_name: Analyze {{ cam_name }}
+                            instructions: '{{ analysis_prompt }}'
+                            attachments:
+                              - '{{ attachment }}'
+                          response_variable: single_result
 
                 - variables:
                     results: >
@@ -253,14 +275,26 @@ sequence:
                 - If asked to describe: overview of what's visible
                 - Keep it conversational for voice assistant
 
-          - action: ai_task.generate_data
-            data:
-              {% if ai_task_entity %}
-              entity_id: '{{ ai_task_entity }}'
-              {% endif %}
-              task_name: Summary
-              instructions: '{{ summary_prompt }}'
-            response_variable: summary_result
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: '{{ ai_task_entity }}'
+                sequence:
+                  - action: ai_task.generate_data
+                    data:
+                      entity_id: '{{ ai_task_entity }}'
+                      task_name: Summary
+                      instructions: '{{ summary_prompt }}'
+                    response_variable: summary_result
+              - conditions:
+                  - condition: template
+                    value_template: '{{ not ai_task_entity }}'
+                sequence:
+                  - action: ai_task.generate_data
+                    data:
+                      task_name: Summary
+                      instructions: '{{ summary_prompt }}'
+                    response_variable: summary_result
 
           - stop: ''
             response_variable:
