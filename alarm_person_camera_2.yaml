@@ -9,7 +9,7 @@ blueprint:
 
     '
   domain: automation
-  source_url: https://raw.githubusercontent.com/TriTue2011/Blueprint/main/alarm_person_camera_2.yaml
+  source_url: https://github.com/thaibacgiang/thaibot/blob/main/alarm_person_camera_2.yaml
   input:
     trigger_section:
       name: Trigger Settings
