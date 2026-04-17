@@ -634,51 +634,27 @@ action:
       ~ camera ~ '_snapshot' ~ i ~ '.jpg',\n    'media_content_type': 'image/jpeg'\n
       \ }] %}\n{%- endfor -%} {{ ns.images }}\n"
     snapshot_first: /media/local/snapshots/{{ file_path_dynamic }}_snapshot1.jpg
-- choose:
-    - conditions:
-        - condition: template
-          value_template: >
-            {{ (ai_result.data.people | default(0)) | int > 0 }}
-      sequence:
-        - alias: Gửi ảnh qua Telegram
-          continue_on_error: true
-          action: telegram_bot.send_photo
-          data: >
-            {% set data = {
-              'config_entry_id': telegram_config_entry,
-              'file': '/media/snapshots/' + file_path_dynamic + '_snapshot1.jpg',
-              'caption': telegram_initial_caption
-            } %}
-            {% if telegram_target != "" %}
-              {% set data = dict(data, chat_id=telegram_target | int) %}
-            {% endif %}
-            {% if telegram_thread_id != "" %}
-              {% set data = dict(data, message_thread_id=telegram_thread_id | int) %}
-            {% endif %}
-            {{ data }}
-
-  default: []
-- choose:
+- alias: Gửi ảnh qua Zalo Bot (Pyscript) - Trước AI
+  choose:
   - conditions:
     - condition: template
       value_template: '{{ enable_zalo_bot }}'
     sequence:
-    - alias: Gửi ảnh qua Zalo Bot (Pyscript)
-      continue_on_error: true
+    - continue_on_error: true
       action: pyscript.send_zalo_photo
       data:
         chat_id: '{{ zalo_bot_chat_id }}'
         file_path: /media/snapshots/{{ file_path_dynamic }}_snapshot1.jpg
         caption: '{{ zalo_bot_initial_caption }}'
       response_variable: zalo_bot_photo_response
-- choose:
+- alias: Gửi ảnh qua Zalo Custom - Trước AI
+  choose:
   - conditions:
     - condition: template
       value_template: "{{ enable_zalo_custom\n   and zalo_resolved_id | trim | length
         > 0\n   and zalo_custom_account | length > 0 }}\n"
     sequence:
-    - alias: Gửi ảnh qua Zalo Custom Integration
-      continue_on_error: true
+    - continue_on_error: true
       action: zalo_bot.send_image
       data:
         account_selection: !input zalo_custom_account
@@ -775,6 +751,30 @@ action:
             có người|không có chuỗi hình ảnh nào được cung cấp')\n  and (ai_result.humans_detected
             | int(0) == 0)\n) }}\n"
         then:
+        - alias: Gửi ảnh qua Telegram - KHI CÓ NGƯỜI
+          continue_on_error: true
+          action: telegram_bot.send_photo
+          data: >
+            {% set data = {
+              'config_entry_id': telegram_config_entry,
+              'file': '/media/snapshots/' + file_path_dynamic + '_snapshot1.jpg',
+              'caption': telegram_initial_caption
+            } %}
+            {% if telegram_target != "" %}
+              {% set data = dict(data, chat_id=telegram_target | int) %}
+            {% endif %}
+            {% if telegram_thread_id != "" %}
+              {% set data = dict(data, message_thread_id=telegram_thread_id | int) %}
+            {% endif %}
+            {{ data }}
+        - alias: Gửi kết quả AI qua Telegram
+          continue_on_error: true
+          action: telegram_bot.send_message
+          data: "{% set data = {\n  'config_entry_id': telegram_config_entry,\n  'message':
+            ai_messages,\n  'parse_mode': 'plain_text'\n} %} {% if telegram_target
+            != \"\" %}\n  {% set data = dict(data, chat_id=telegram_target | int)
+            %}\n{% endif %} {% if telegram_thread_id != \"\" %}\n  {% set data = dict(data,
+            message_thread_id=telegram_thread_id | int) %}\n{% endif %} {{ data }}\n"
         - if:
           - condition: template
             value_template: '{{ include_notify and (filtered_devices | length > 0)
@@ -827,15 +827,7 @@ action:
         - if:
           - condition: template
             value_template: '{{ include_telegram_notify }}'
-          then:
-          - continue_on_error: true
-            action: telegram_bot.send_message
-            data: "{% set data = {\n  'config_entry_id': telegram_config_entry,\n
-              \ 'message': ai_messages,\n  'parse_mode': 'plain_text'\n} %} {% if
-              telegram_target != \"\" %}\n  {% set data = dict(data, chat_id=telegram_target
-              | int) %}\n{% endif %} {% if telegram_thread_id != \"\" %}\n  {% set
-              data = dict(data, message_thread_id=telegram_thread_id | int) %}\n{%
-              endif %} {{ data }}\n"
+          then: []
         - choose:
           - conditions:
             - condition: template
