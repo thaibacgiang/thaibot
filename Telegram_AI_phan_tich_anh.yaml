@@ -1,56 +1,74 @@
 blueprint:
-  name: Telegram AI phân tích ảnh bằng AI Task
+  name: Telegram AI Image Analyzer
+  author: ThaiDV
   description: >
-    Nhận ảnh từ Telegram Bot trong Home Assistant,
-    gửi sang AI Task để phân tích và trả kết quả lại Telegram.
+    Nhận ảnh từ Telegram và dùng AI Task phân tích ảnh.
 
     Hỗ trợ:
-    - Phân tích người, xe, vật thể
-    - Nhận diện hành động
-    - Phát hiện bất thường
+    - Gemini/OpenAI/Claude qua AI Task
     - Caption yêu cầu riêng
-    - Gemini / OpenAI / Claude qua AI Task
+    - Phân tích người, xe, vật thể
+    - Phát hiện bất thường
 
   domain: automation
 
+  homeassistant:
+    min_version: 2025.8.0
+
   input:
 
-    telegram_bot_id:
-      name: Telegram Bot
-      description: Chọn bot Telegram đã cấu hình
-      selector:
-        entity:
-          domain: telegram_bot
+    ai_task_settings:
+      name: AI Task Settings
+      icon: mdi:robot-outline
+      input:
 
-    ai_task_entity:
-      name: AI Task
-      description: Chọn entity AI Task
-      selector:
-        entity:
-          domain: assist_satellite
+        ai_task_entity:
+          name: AI Task Entity
+          selector:
+            entity:
+              filter:
+                - domain:
+                    - ai_task
+              multiple: false
+              reorder: false
+          default:
 
-    telegram_chat_id:
-      name: Telegram Chat ID
-      description: ID chat Telegram nhận kết quả
-      selector:
-        text:
+    telegram_settings:
+      name: Telegram Settings
+      icon: mdi:telegram
+      input:
 
-    prompt:
-      name: Prompt phân tích ảnh
-      default: >
-        Hãy phân tích chi tiết ảnh này bằng tiếng Việt.
+        telegram_bot_token:
+          name: Telegram Bot Token
+          selector:
+            text:
 
-        Yêu cầu:
-        - Mô tả toàn cảnh
-        - Nhận diện người và hành động
-        - Mô tả trang phục
-        - Nhận diện xe cộ, động vật, đồ vật
-        - Phát hiện nguy hiểm hoặc bất thường nếu có
-        - Trả lời ngắn gọn nhưng đầy đủ
+        telegram_chat_id:
+          name: Telegram Chat ID
+          selector:
+            text:
 
-      selector:
-        text:
-          multiline: true
+    prompt_settings:
+      name: Prompt Settings
+      icon: mdi:text-box-outline
+      collapsed: true
+      input:
+
+        prompt:
+          name: Prompt phân tích
+          default: >
+            Hãy phân tích chi tiết ảnh này bằng tiếng Việt.
+
+            Yêu cầu:
+            - Mô tả toàn cảnh
+            - Nhận diện người và hành động
+            - Mô tả trang phục
+            - Nhận diện xe cộ, động vật, đồ vật
+            - Phát hiện nguy hiểm hoặc bất thường nếu có
+            - Trả lời tự nhiên, ngắn gọn
+          selector:
+            text:
+              multiline: true
 
 mode: restart
 
@@ -59,52 +77,70 @@ trigger:
     event_type: telegram_photo
 
 variables:
+
   event_data: "{{ trigger.event.data }}"
+
   file_id: "{{ event_data.photo[-1].file_id }}"
+
   caption: "{{ event_data.caption | default('') }}"
-  bot_entity: !input telegram_bot_id
-  ai_task: !input ai_task_entity
+
+  ai_task_entity: !input ai_task_entity
+
+  telegram_bot_token: !input telegram_bot_token
+
   telegram_chat_id: !input telegram_chat_id
+
   prompt: !input prompt
 
 action:
 
-  #################################################################
-  # LẤY FILE TELEGRAM
-  #################################################################
-  - service: telegram_bot.get_file
+  #############################################################
+  # LẤY FILE TỪ TELEGRAM
+  #############################################################
+
+  - action: telegram_bot.get_file
     data:
       file_id: "{{ file_id }}"
     response_variable: telegram_file
 
   - variables:
+
       file_path: "{{ telegram_file.file_path }}"
+
       local_file: "/config/www/telegram_ai/latest.jpg"
 
-  #################################################################
+  #############################################################
   # DOWNLOAD ẢNH
-  #################################################################
-  - service: downloader.download_file
+  #############################################################
+
+  - action: downloader.download_file
     data:
       url: >
-        https://api.telegram.org/file/bot
-        {{ state_attr(bot_entity,'token') }}/{{ file_path }}
+        https://api.telegram.org/file/bot{{ telegram_bot_token }}/{{ file_path }}
 
       filename: latest.jpg
+
       subdir: telegram_ai
+
       overwrite: true
 
   - delay:
       seconds: 2
 
-  #################################################################
-  # AI TASK PHÂN TÍCH
-  #################################################################
-  - service: assist_satellite.ask_question
-    target:
-      entity_id: "{{ ai_task }}"
-    data:
-      question: >
+  #############################################################
+  # TẠO ATTACHMENT CHO AI TASK
+  #############################################################
+
+  - variables:
+
+      image_attachment:
+        media_content_id: media-source://media_source/local/telegram_ai/latest.jpg
+        media_content_type: image/jpeg
+        metadata:
+          title: Telegram Image
+          media_class: image
+
+      final_prompt: >
         {{ prompt }}
 
         {% if caption != '' %}
@@ -112,24 +148,32 @@ action:
         {{ caption }}
         {% endif %}
 
-      image_filename:
-        - "{{ local_file }}"
+  #############################################################
+  # AI TASK PHÂN TÍCH
+  #############################################################
+
+  - action: ai_task.generate_data
+    data:
+      entity_id: "{{ ai_task_entity }}"
+      task_name: Telegram Image Analysis
+      instructions: "{{ final_prompt }}"
+      attachments:
+        - "{{ image_attachment }}"
 
     response_variable: ai_result
 
-  #################################################################
+  #############################################################
   # GỬI KẾT QUẢ
-  #################################################################
-  - service: telegram_bot.send_message
-    data:
-      target: "{{ telegram_chat_id }}"
-      message: |
-        🤖 PHÂN TÍCH ẢNH AI
+  #############################################################
 
-        {{ ai_result.answer | default('Không có phản hồi') }}
-
-  - service: telegram_bot.send_photo
+  - action: telegram_bot.send_photo
     data:
+
       target: "{{ telegram_chat_id }}"
+
       file: "{{ local_file }}"
-      caption: "Ảnh đã phân tích"
+
+      caption: >
+        🤖 PHÂN TÍCH AI
+
+        {{ ai_result.data if ai_result.data is defined else 'Không có phản hồi' }}
