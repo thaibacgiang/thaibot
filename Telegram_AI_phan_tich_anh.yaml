@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Smart Camera Analyzer fix
-  author: benbap_fixed
+  author: thai
   description: 'Tự động phát hiện:
 
     - Hỏi 1 camera → Trả lời trực tiếp
@@ -186,180 +186,189 @@ sequence:
         {% endif %}
 
   - choose:
-      - conditions:
-          - condition: template
-            value_template: '{{ use_mode == "single" }}'
-        sequence:
-          - variables:
-              camera_name: '{{ state_attr(final_camera, "friendly_name") or final_camera }}'
-              single_prompt: |
-                You are analyzing a single camera frame.
-                CAMERA: {{ camera_name }}
-                USER QUESTION: "{{ user_question }}"
-                INSTRUCTIONS:
-                - Answer in VIETNAMESE with proper diacritics
-                - Be conversational and natural (2-3 sentences max)
-                - If asked about people: "Có người" or "Không có người"
-                - If asked to describe: mention main visible elements
-                - If dark/blocked: "Camera bị tối/che khuất"
-                Answer directly, no extra formatting.
-              camera_attachment:
-                media_content_id: media-source://camera/{{ final_camera }}
-                media_content_type: image/jpeg
-                metadata:
-                  title: '{{ camera_name }}'
-                  media_class: image
+    - conditions:
+        - condition: template
+          value_template: '{{ use_mode == "single" }}'
+      sequence:
+        - variables:
+            camera_name: '{{ state_attr(final_camera, "friendly_name") or final_camera }}'
+            single_prompt: |
+              You are analyzing a single camera frame.
+              CAMERA: {{ camera_name }}
+              USER QUESTION: "{{ user_question }}"
+              INSTRUCTIONS:
+              - Answer in VIETNAMESE with proper diacritics
+              - Be conversational and natural (2-3 sentences max)
+              - If asked about people: "Có người" or "Không có người"
+              - If asked to describe: mention main visible elements
+              - If dark/blocked: "Camera bị tối/che khuất"
+              Answer directly, no extra formatting.
+            camera_attachment:
+              media_content_id: media-source://camera/{{ final_camera }}
+              media_content_type: image/jpeg
+              metadata:
+                title: '{{ camera_name }}'
+                media_class: image
 
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: '{{ not ai_task_entity }}'
-                sequence:
-                  - action: ai_task.generate_data
-                    data:
-                      task_name: Analyze {{ camera_name }}
-                      instructions: '{{ single_prompt }}'
-                      attachments:
-                        - '{{ camera_attachment }}'
-                    response_variable: ai_result
-              default:
-                - action: ai_task.generate_data
-                  data:
-                    entity_id: '{{ ai_task_entity }}'
-                    task_name: Analyze {{ camera_name }}
-                    instructions: '{{ single_prompt }}'
-                    attachments:
-                      - '{{ camera_attachment }}'
-                  response_variable: ai_result
-
-          - variables:
-              response:
-                mode: single
-                camera: '{{ final_camera }}'
-                camera_name: '{{ camera_name }}'
-                answer: '{{ ai_result.data if ai_result.data is defined else "Lỗi phân tích" }}'
-                timestamp: '{{ now().isoformat() }}'
-
-          - stop: ''
-            response_variable: response
-
-      - conditions:
-          - condition: template
-            value_template: '{{ use_mode == "multi" }}'
-        sequence:
-          - if:
+        - choose:
+          - conditions:
               - condition: template
-                value_template: '{{ all_cameras | length == 0 }}'
-            then:
+                value_template: '{{ not ai_task_entity }}'
+            sequence:
+              - action: ai_task.generate_data
+                data:
+                  task_name: Analyze {{ camera_name }}
+                  instructions: '{{ single_prompt }}'
+                  attachments:
+                    - '{{ camera_attachment }}'
+                response_variable: ai_result
+          - conditions:
+              - condition: template
+                value_template: '{{ ai_task_entity }}'
+            sequence:
+              - action: ai_task.generate_data
+                data:
+                  entity_id: '{{ ai_task_entity }}'
+                  task_name: Analyze {{ camera_name }}
+                  instructions: '{{ single_prompt }}'
+                  attachments:
+                    - '{{ camera_attachment }}'
+                response_variable: ai_result
+
+        - variables:
+            response:
+              mode: single
+              camera: '{{ final_camera }}'
+              camera_name: '{{ camera_name }}'
+              answer: '{{ ai_result.data if ai_result.data is defined else "Lỗi phân tích" }}'
+              timestamp: '{{ now().isoformat() }}'
+
+        - stop: ''
+          response_variable: response
+
+    - conditions:
+        - condition: template
+          value_template: '{{ use_mode == "multi" }}'
+      sequence:
+        - if:
+            - condition: template
+              value_template: '{{ all_cameras | length == 0 }}'
+          then:
+            - variables:
+                response:
+                  error: Không tìm thấy camera nào
+            - stop: No cameras
+              response_variable: response
+
+        - variables:
+            analysis_prompt: |
+              Analyze this single camera frame.
+              USER QUESTION: "{{ user_question }}"
+              Answer in VIETNAMESE (1-2 sentences):
+              - People detection: "Có người" or "Không có người"
+              - Description: main objects/people/pets
+              - Issues: "Camera tối/che khuất" if applicable
+            camera_results: []
+
+        - repeat:
+            for_each: '{{ all_cameras }}'
+            sequence:
               - variables:
-                  response:
-                    error: Không tìm thấy camera nào
-              - stop: No cameras
-                response_variable: response
+                  current_camera: '{{ repeat.item }}'
+                  camera_name: '{{ state_attr(repeat.item, "friendly_name") or repeat.item }}'
 
-          - variables:
-              analysis_prompt: |
-                Analyze this single camera frame.
-                USER QUESTION: "{{ user_question }}"
-                Answer in VIETNAMESE (1-2 sentences):
-                - People detection: "Có người" or "Không có người"
-                - Description: main objects/people/pets
-                - Issues: "Camera tối/che khuất" if applicable
-              camera_results: []
+              - variables:
+                  camera_attachment:
+                    media_content_id: media-source://camera/{{ current_camera }}
+                    media_content_type: image/jpeg
+                    metadata:
+                      title: '{{ camera_name }}'
+                      media_class: image
 
-          - repeat:
-              for_each: '{{ all_cameras }}'
-              sequence:
-                - variables:
-                    current_camera: '{{ repeat.item }}'
-                    camera_name: '{{ state_attr(repeat.item, "friendly_name") or repeat.item }}'
-
-                - variables:
-                    camera_attachment:
-                      media_content_id: media-source://camera/{{ current_camera }}
-                      media_content_type: image/jpeg
-                      metadata:
-                        title: '{{ camera_name }}'
-                        media_class: image
-
-                - choose:
-                    - conditions:
-                        - condition: template
-                          value_template: '{{ not ai_task_entity }}'
-                      sequence:
-                        - action: ai_task.generate_data
-                          data:
-                            task_name: Analyze {{ camera_name }}
-                            instructions: '{{ analysis_prompt }}'
-                            attachments:
-                              - '{{ camera_attachment }}'
-                          response_variable: ai_single_result
-                    default:
-                      - action: ai_task.generate_data
-                        data:
-                          entity_id: '{{ ai_task_entity }}'
-                          task_name: Analyze {{ camera_name }}
-                          instructions: '{{ analysis_prompt }}'
-                          attachments:
-                            - '{{ camera_attachment }}'
-                        response_variable: ai_single_result
-
-                - variables:
-                    camera_results: |
-                      {% set results = camera_results %}
-                      {% set new_result = {
-                        'camera': current_camera,
-                        'camera_name': camera_name,
-                        'analysis': ai_single_result.data if ai_single_result.data is defined else 'Lỗi',
-                        'timestamp': now().isoformat()
-                      } %}
-                      {{ results + [new_result] }}
-
-                - if:
+              - choose:
+                - conditions:
                     - condition: template
-                      value_template: '{{ repeat.index < all_cameras | length }}'
-                  then:
-                    - delay:
-                        seconds: '{{ delay_between_cameras }}'
+                      value_template: '{{ not ai_task_entity }}'
+                  sequence:
+                    - action: ai_task.generate_data
+                      data:
+                        task_name: Analyze {{ camera_name }}
+                        instructions: '{{ analysis_prompt }}'
+                        attachments:
+                          - '{{ camera_attachment }}'
+                      response_variable: ai_single_result
+                - conditions:
+                    - condition: template
+                      value_template: '{{ ai_task_entity }}'
+                  sequence:
+                    - action: ai_task.generate_data
+                      data:
+                        entity_id: '{{ ai_task_entity }}'
+                        task_name: Analyze {{ camera_name }}
+                        instructions: '{{ analysis_prompt }}'
+                        attachments:
+                          - '{{ camera_attachment }}'
+                      response_variable: ai_single_result
 
-          - variables:
-              summary_prompt: |
-                Summarize these camera analysis results in Vietnamese.
-                USER QUESTION: "{{ user_question }}"
-                RESULTS:
-                {% for result in camera_results %}
-                  - {{ result.camera_name }}: {{ result.analysis }}
-                {% endfor %}
-                Create a natural 2-4 sentence summary:
-                - If asked about people: list cameras WITH people, then WITHOUT
-                - If asked to describe: overview of what's visible
-                - Keep it conversational for voice assistant
+              - variables:
+                  camera_results: |
+                    {% set results = camera_results %}
+                    {% set new_result = {
+                      'camera': current_camera,
+                      'camera_name': camera_name,
+                      'analysis': ai_single_result.data if ai_single_result.data is defined else 'Lỗi',
+                      'timestamp': now().isoformat()
+                    } %}
+                    {{ results + [new_result] }}
 
-          - choose:
-              - conditions:
+              - if:
                   - condition: template
-                    value_template: '{{ not ai_task_entity }}'
-                sequence:
-                  - action: ai_task.generate_data
-                    data:
-                      task_name: Summary
-                      instructions: '{{ summary_prompt }}'
-                    response_variable: ai_summary_result
-              default:
-                - action: ai_task.generate_data
-                  data:
-                    entity_id: '{{ ai_task_entity }}'
-                    task_name: Summary
-                    instructions: '{{ summary_prompt }}'
-                  response_variable: ai_summary_result
+                    value_template: '{{ repeat.index < all_cameras | length }}'
+                then:
+                  - delay:
+                      seconds: '{{ delay_between_cameras }}'
 
-          - variables:
-              response:
-                mode: multi
-                camera_count: '{{ all_cameras | length }}'
-                individual_results: '{{ camera_results }}'
-                summary: '{{ ai_summary_result.data if ai_summary_result.data is defined else "Không tổng hợp được" }}'
-                timestamp: '{{ now().isoformat() }}'
+        - variables:
+            summary_prompt: |
+              Summarize these camera analysis results in Vietnamese.
+              USER QUESTION: "{{ user_question }}"
+              RESULTS:
+              {% for result in camera_results %}
+                - {{ result.camera_name }}: {{ result.analysis }}
+              {% endfor %}
+              Create a natural 2-4 sentence summary:
+              - If asked about people: list cameras WITH people, then WITHOUT
+              - If asked to describe: overview of what's visible
+              - Keep it conversational for voice assistant
 
-          - stop: ''
-            response_variable: response
+        - choose:
+          - conditions:
+              - condition: template
+                value_template: '{{ not ai_task_entity }}'
+            sequence:
+              - action: ai_task.generate_data
+                data:
+                  task_name: Summary
+                  instructions: '{{ summary_prompt }}'
+                response_variable: ai_summary_result
+          - conditions:
+              - condition: template
+                value_template: '{{ ai_task_entity }}'
+            sequence:
+              - action: ai_task.generate_data
+                data:
+                  entity_id: '{{ ai_task_entity }}'
+                  task_name: Summary
+                  instructions: '{{ summary_prompt }}'
+                response_variable: ai_summary_result
+
+        - variables:
+            response:
+              mode: multi
+              camera_count: '{{ all_cameras | length }}'
+              individual_results: '{{ camera_results }}'
+              summary: '{{ ai_summary_result.data if ai_summary_result.data is defined else "Không tổng hợp được" }}'
+              timestamp: '{{ now().isoformat() }}'
+
+        - stop: ''
+          response_variable: response
