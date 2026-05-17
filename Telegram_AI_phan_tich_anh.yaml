@@ -209,38 +209,35 @@ sequence:
               metadata:
                 title: '{{ camera_name }}'
                 media_class: image
+            ai_result: null
 
-        - choose:
-          - conditions:
-              - condition: template
-                value_template: '{{ not ai_task_entity }}'
-            sequence:
-              - action: ai_task.generate_data
-                data:
-                  task_name: Analyze {{ camera_name }}
-                  instructions: '{{ single_prompt }}'
-                  attachments:
-                    - '{{ camera_attachment }}'
-                response_variable: ai_result
-          - conditions:
-              - condition: template
-                value_template: '{{ ai_task_entity }}'
-            sequence:
-              - action: ai_task.generate_data
-                data:
-                  entity_id: '{{ ai_task_entity }}'
-                  task_name: Analyze {{ camera_name }}
-                  instructions: '{{ single_prompt }}'
-                  attachments:
-                    - '{{ camera_attachment }}'
-                response_variable: ai_result
+        - if:
+            - condition: template
+              value_template: '{{ not ai_task_entity }}'
+          then:
+            - action: ai_task.generate_data
+              data:
+                task_name: Analyze {{ camera_name }}
+                instructions: '{{ single_prompt }}'
+                attachments:
+                  - '{{ camera_attachment }}'
+              response_variable: ai_result
+          else:
+            - action: ai_task.generate_data
+              data:
+                entity_id: '{{ ai_task_entity }}'
+                task_name: Analyze {{ camera_name }}
+                instructions: '{{ single_prompt }}'
+                attachments:
+                  - '{{ camera_attachment }}'
+              response_variable: ai_result
 
         - variables:
             response:
               mode: single
               camera: '{{ final_camera }}'
               camera_name: '{{ camera_name }}'
-              answer: '{{ ai_result.data if ai_result.data is defined else "Lỗi phân tích" }}'
+              answer: '{{ ai_result.data if ai_result and ai_result.data is defined else "Lỗi phân tích" }}'
               timestamp: '{{ now().isoformat() }}'
 
         - stop: ''
@@ -276,6 +273,7 @@ sequence:
               - variables:
                   current_camera: '{{ repeat.item }}'
                   camera_name: '{{ state_attr(repeat.item, "friendly_name") or repeat.item }}'
+                  ai_single_result: null
 
               - variables:
                   camera_attachment:
@@ -285,30 +283,26 @@ sequence:
                       title: '{{ camera_name }}'
                       media_class: image
 
-              - choose:
-                - conditions:
-                    - condition: template
-                      value_template: '{{ not ai_task_entity }}'
-                  sequence:
-                    - action: ai_task.generate_data
-                      data:
-                        task_name: Analyze {{ camera_name }}
-                        instructions: '{{ analysis_prompt }}'
-                        attachments:
-                          - '{{ camera_attachment }}'
-                      response_variable: ai_single_result
-                - conditions:
-                    - condition: template
-                      value_template: '{{ ai_task_entity }}'
-                  sequence:
-                    - action: ai_task.generate_data
-                      data:
-                        entity_id: '{{ ai_task_entity }}'
-                        task_name: Analyze {{ camera_name }}
-                        instructions: '{{ analysis_prompt }}'
-                        attachments:
-                          - '{{ camera_attachment }}'
-                      response_variable: ai_single_result
+              - if:
+                  - condition: template
+                    value_template: '{{ not ai_task_entity }}'
+                then:
+                  - action: ai_task.generate_data
+                    data:
+                      task_name: Analyze {{ camera_name }}
+                      instructions: '{{ analysis_prompt }}'
+                      attachments:
+                        - '{{ camera_attachment }}'
+                    response_variable: ai_single_result
+                else:
+                  - action: ai_task.generate_data
+                    data:
+                      entity_id: '{{ ai_task_entity }}'
+                      task_name: Analyze {{ camera_name }}
+                      instructions: '{{ analysis_prompt }}'
+                      attachments:
+                        - '{{ camera_attachment }}'
+                    response_variable: ai_single_result
 
               - variables:
                   camera_results: |
@@ -316,7 +310,7 @@ sequence:
                     {% set new_result = {
                       'camera': current_camera,
                       'camera_name': camera_name,
-                      'analysis': ai_single_result.data if ai_single_result.data is defined else 'Lỗi',
+                      'analysis': ai_single_result.data if ai_single_result and ai_single_result.data is defined else 'Lỗi',
                       'timestamp': now().isoformat()
                     } %}
                     {{ results + [new_result] }}
@@ -340,34 +334,31 @@ sequence:
               - If asked about people: list cameras WITH people, then WITHOUT
               - If asked to describe: overview of what's visible
               - Keep it conversational for voice assistant
+            ai_summary_result: null
 
-        - choose:
-          - conditions:
-              - condition: template
-                value_template: '{{ not ai_task_entity }}'
-            sequence:
-              - action: ai_task.generate_data
-                data:
-                  task_name: Summary
-                  instructions: '{{ summary_prompt }}'
-                response_variable: ai_summary_result
-          - conditions:
-              - condition: template
-                value_template: '{{ ai_task_entity }}'
-            sequence:
-              - action: ai_task.generate_data
-                data:
-                  entity_id: '{{ ai_task_entity }}'
-                  task_name: Summary
-                  instructions: '{{ summary_prompt }}'
-                response_variable: ai_summary_result
+        - if:
+            - condition: template
+              value_template: '{{ not ai_task_entity }}'
+          then:
+            - action: ai_task.generate_data
+              data:
+                task_name: Summary
+                instructions: '{{ summary_prompt }}'
+              response_variable: ai_summary_result
+          else:
+            - action: ai_task.generate_data
+              data:
+                entity_id: '{{ ai_task_entity }}'
+                task_name: Summary
+                instructions: '{{ summary_prompt }}'
+              response_variable: ai_summary_result
 
         - variables:
             response:
               mode: multi
               camera_count: '{{ all_cameras | length }}'
               individual_results: '{{ camera_results }}'
-              summary: '{{ ai_summary_result.data if ai_summary_result.data is defined else "Không tổng hợp được" }}'
+              summary: '{{ ai_summary_result.data if ai_summary_result and ai_summary_result.data is defined else "Không tổng hợp được" }}'
               timestamp: '{{ now().isoformat() }}'
 
         - stop: ''
