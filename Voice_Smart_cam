@@ -1,6 +1,6 @@
 blueprint:
   name: Voice - Smart Camera Analyzer (Single + Sequential)
-  author: benbap_fixed
+  author: Thai
   description: 'Tự động phát hiện:
     - Hỏi 1 camera → Trả lời trực tiếp
     - Hỏi nhiều camera → Phân tích tuần tự rồi tổng hợp
@@ -216,7 +216,10 @@ sequence:
                       attachments:
                         - '{{ camera_attachment }}'
                     response_variable: ai_result
-              default:
+              - conditions:
+                  - condition: template
+                    value_template: '{{ ai_task_entity }}'
+                sequence:
                   - action: ai_task.generate_data
                     data:
                       entity_id: '{{ ai_task_entity }}'
@@ -288,7 +291,10 @@ sequence:
                             attachments:
                               - '{{ camera_attachment }}'
                           response_variable: ai_single_result
-                    default:
+                    - conditions:
+                        - condition: template
+                          value_template: '{{ ai_task_entity }}'
+                      sequence:
                         - action: ai_task.generate_data
                           data:
                             entity_id: '{{ ai_task_entity }}'
@@ -341,7 +347,10 @@ sequence:
                       task_name: Summary
                       instructions: '{{ summary_prompt }}'
                     response_variable: ai_summary_result
-              default:
+              - conditions:
+                  - condition: template
+                    value_template: '{{ ai_task_entity }}'
+                sequence:
                   - action: ai_task.generate_data
                     data:
                       entity_id: '{{ ai_task_entity }}'
