@@ -1,0 +1,71 @@
+blueprint:
+  name: "Hỏi dữ liệu từ SQL Sensor"
+  description: "Tạo intent để hỏi dữ liệu từ SQL sensor và trả lời qua voice assistant"
+  domain: automation
+  input:
+    sensor_name:
+      name: "SQL Sensor"
+      description: "Chọn sensor chứa dữ liệu"
+      selector:
+        entity:
+          domain: sensor
+      default: "sensor.danh_sach_nhan_dien_15p"
+    
+    intent_name:
+      name: "Tên intent"
+      description: "Tên intent để gọi (không dấu, viết liền)"
+      default: "HoiAiDangONha"
+    
+    sentences:
+      name: "Câu hỏi"
+      description: "Các câu hỏi để kích hoạt (mỗi câu 1 dòng)"
+      selector:
+        text:
+          multiline: true
+      default: |
+        Ai đang ở nhà
+        Có ai ở nhà không
+        Nhà có ai
+        Ai ở nhà
+    
+    agent_id:
+      name: "Agent ID"
+      description: "Để trống nếu dùng agent mặc định"
+      selector:
+        text:
+          multiline: false
+      default: ""
+
+  trigger:
+    - platform: conversation
+      command: !input sentences
+
+  action:
+    - service: conversation.process
+      data:
+        agent_id: !input agent_id
+        text: >
+          {% set sensor = !input sensor_name %}
+          {% set people_raw = state_attr(sensor, 'result') %}
+          {% if people_raw is none or people_raw == '' or people_raw == '[]' %}
+            Hiện không có ai ở nhà cả.
+          {% else %}
+            {% set people = people_raw | from_json %}
+            {% if people == [] %}
+              Hiện không có ai ở nhà cả.
+            {% elif people | length == 1 %}
+              {% set p = people[0] %}
+              {% set time = (p.last_seen | int | timestamp_custom('%H:%M')) if p.last_seen else 'không rõ' %}
+              {{ p.person }} đang ở nhà (Camera: {{ p.camera }}, lúc {{ time }})
+            {% else %}
+              {% set messages = [] %}
+              {% for p in people %}
+                {% set time = (p.last_seen | int | timestamp_custom('%H:%M')) if p.last_seen else 'không rõ' %}
+                {% set messages = messages + [p.person + ' (Camera ' + p.camera + ', ' + time + ')'] %}
+              {% endfor %}
+              {% set people_str = messages | join(', ') %}
+              {% set last = messages | last %}
+              {% set display = people_str | replace(', ' + last, ' và ' + last) %}
+              Đang có {{ people | length }} người ở nhà: {{ display }}
+            {% endif %}
+          {% endif %}
