@@ -1,8 +1,7 @@
 blueprint:
   name: "Hỏi dữ liệu từ SQL Sensor"
   description: "Tạo intent để hỏi dữ liệu từ SQL sensor và trả lời qua voice assistant"
-  domain: conversation
-  
+  domain: automation
   input:
     sensor_name:
       name: "SQL Sensor"
@@ -29,37 +28,6 @@ blueprint:
         Nhà có ai
         Ai ở nhà
     
-    response_template:
-      name: "Template trả lời"
-      description: "Template để format kết quả"
-      selector:
-        text:
-          multiline: true
-      default: |
-        {% set people_raw = state_attr(sensor, 'result') %}
-        {% if people_raw is none or people_raw == '' or people_raw == '[]' %}
-          Hiện không có ai ở nhà cả.
-        {% else %}
-          {% set people = people_raw | from_json %}
-          {% if people == [] %}
-            Hiện không có ai ở nhà cả.
-          {% elif people | length == 1 %}
-            {% set p = people[0] %}
-            {% set time = (p.last_seen | int | timestamp_custom('%H:%M')) if p.last_seen else 'không rõ' %}
-            {{ p.person }} đang ở nhà (Camera: {{ p.camera }}, lúc {{ time }})
-          {% else %}
-            {% set messages = [] %}
-            {% for p in people %}
-              {% set time = (p.last_seen | int | timestamp_custom('%H:%M')) if p.last_seen else 'không rõ' %}
-              {% set messages = messages + [p.person + ' (Camera ' + p.camera + ', ' + time + ')'] %}
-            {% endfor %}
-            {% set people_str = messages | join(', ') %}
-            {% set last = messages | last %}
-            {% set display = people_str | replace(', ' + last, ' và ' + last) %}
-            Đang có {{ people | length }} người ở nhà: {{ display }}
-          {% endif %}
-        {% endif %}
-    
     agent_id:
       name: "Agent ID"
       description: "Để trống nếu dùng agent mặc định"
@@ -68,9 +36,9 @@ blueprint:
           multiline: false
       default: ""
 
-  conversation_intents:
-    - intent: !input intent_name
-      sentences: !input sentences
+  trigger:
+    - platform: conversation
+      command: !input sentences
 
   action:
     - service: conversation.process
