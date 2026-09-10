@@ -2,10 +2,9 @@ blueprint:
   name: Voice - AI Đang Ở Nhà
   author: Thaidv1
   description: >
-    🏠 Trả lời câu hỏi về những người đang ở nhà dựa trên dữ liệu
-    nhận diện khuôn mặt IRIS.
+    🏠 TOOL CHỈ DÙNG CHO CÂU HỎI VỀ NGƯỜI ĐANG Ở NHÀ.
 
-    ĐÂY LÀ TOOL CHỈ DÀNH CHO IRIS PEOPLE AT HOME.
+    Dữ liệu lấy từ sensor IRIS People At Home.
 
     SỬ DỤNG TOOL NÀY khi người dùng hỏi:
     - ai đang ở nhà
@@ -19,13 +18,11 @@ blueprint:
     - ai đang có mặt trong nhà
     - ai được nhận diện trong nhà
 
-    KHÔNG sử dụng tool này để phân tích hình ảnh camera.
+    KHÔNG dùng tool này để phân tích hình ảnh camera.
 
-    Nếu người dùng hỏi về camera, hình ảnh, có người trong camera,
-    camera thấy gì, camera sân vườn, camera phòng trà... thì phải
-    sử dụng tool Smart Camera Analyzer.
-
-    Tool này có thể được gọi bằng Voice hoặc Text thông qua Gemini Assist.
+    Nếu người dùng hỏi camera thấy gì, camera có người không,
+    camera sân vườn, camera phòng trà, camera phòng khách...
+    thì phải sử dụng Smart Camera Analyzer.
 
   domain: script
 
@@ -42,89 +39,71 @@ blueprint:
           name: IRIS People At Home
           description: >
             Sensor chứa danh sách người được IRIS nhận diện.
+          default: sensor.iris_people_at_home
           selector:
             entity:
               filter:
                 - domain: sensor
-          default: sensor.iris_people_at_home
 
         time_window:
           name: Thời gian hợp lệ
           description: >
-            Chỉ coi người là đang ở nhà nếu được IRIS nhận diện
-            trong khoảng thời gian này.
+            Chỉ coi người là đang ở nhà nếu lần nhận diện gần nhất
+            nằm trong khoảng thời gian này.
+          default: 15
           selector:
             number:
               min: 1
               max: 120
               step: 1
-              unit_of_measurement: phút
               mode: box
-          default: 15
+              unit_of_measurement: phút
 
-  mode: parallel
-  max: 10
-  max_exceeded: silent
+fields:
+  instructions:
+    name: User Question
+    description: >
+      Câu hỏi tự nhiên của người dùng về những người đang ở nhà.
+      Ví dụ: ai đang ở nhà, nhà có ai, hiện tại ai đang có mặt.
+      KHÔNG dùng cho câu hỏi phân tích camera.
+    required: true
+    selector:
+      text:
+        multiline: true
 
-  fields:
-    instructions:
-      name: User Question
-      description: >
-        Câu hỏi tự nhiên của người dùng về những người đang ở nhà.
-      selector:
-        text:
-          multiline: true
-      required: true
+mode: parallel
+max: 10
+max_exceeded: silent
 
 sequence:
 
-  # ============================================================
-  # 1. NHẬN DỮ LIỆU
-  # ============================================================
-
-  - variables:
+  - alias: "🏠 Lấy dữ liệu IRIS"
+    variables:
       iris_entity: !input iris_sensor
       window_minutes: !input time_window
       user_question: "{{ instructions | default('') | trim }}"
+      people: >
+        {{ state_attr(iris_entity, 'people') | default([], true) }}
 
-      people:
-        "{{ state_attr(iris_entity, 'people') | default([], true) }}"
-
-  # ============================================================
-  # 2. LỌC NGƯỜI HỢP LỆ
-  #
-  # last_seen_timestamp phải được sensor IRIS cung cấp.
-  # ============================================================
-
-  - variables:
+  - alias: "🔎 Lọc người còn hiệu lực"
+    variables:
       valid_people: >
         {% set ns = namespace(result=[]) %}
 
         {% for p in people %}
 
-          {% set name =
-            p.name | default('') | string | trim
-          %}
-
-          {% set camera =
-            p.camera | default('') | string | trim
-          %}
-
-          {% set time_text =
-            p.last_seen | default('') | string | trim
-          %}
-
-          {% set timestamp =
-            p.last_seen_timestamp | default('') | string | trim
-          %}
+          {% set name = p.name | default('') | string | trim %}
+          {% set camera = p.camera | default('') | string | trim %}
+          {% set last_seen = p.last_seen | default('') | string | trim %}
+          {% set timestamp = p.last_seen_timestamp | default('') | string | trim %}
 
           {% if
             name
             and name | lower not in [
               'unknown',
               'none',
-              'no face detected',
-              'unknown person'
+              'unknown person',
+              'no face detected'
             ]
             and camera
             and timestamp
@@ -136,15 +115,13 @@ sequence:
 
             {% if age >= 0 and age <= window_minutes %}
 
-              {% set ns.result =
-                ns.result + [{
-                  'name': name,
-                  'camera': camera,
-                  'last_seen': time_text,
-                  'last_seen_timestamp': timestamp,
-                  'age_minutes': age | int
-                }]
-              %}
+              {% set ns.result = ns.result + [{
+                'name': name,
+                'camera': camera,
+                'last_seen': last_seen,
+                'last_seen_timestamp': timestamp,
+                'age_minutes': age | int
+              }] %}
 
             {% endif %}
 
@@ -154,85 +131,37 @@ sequence:
 
         {{ ns.result }}
 
-  # ============================================================
-  # 3. TRẢ KẾT QUẢ CHO GEMINI
-  # ============================================================
-
-  - variables:
+  - alias: "💬 Tạo câu trả lời"
+    variables:
       answer: >
         {% if valid_people | length == 0 %}
 
-          Hiện tại tôi chưa ghi nhận người nào được IRIS nhận diện
-          trong {{ window_minutes }} phút qua.
-
-        {% elif valid_people | length == 1 %}
-
-          {% set p = valid_people[0] %}
-
-          {% if p.age_minutes == 0 %}
-            Hiện tại có {{ p.name }} ở {{ p.camera }},
-            được nhận diện lúc {{ p.last_seen }}, vừa mới nhận diện.
-          {% elif p.age_minutes == 1 %}
-            Hiện tại có {{ p.name }} ở {{ p.camera }},
-            được nhận diện lúc {{ p.last_seen }}, cách đây 1 phút.
-          {% else %}
-            Hiện tại có {{ p.name }} ở {{ p.camera }},
-            được nhận diện lúc {{ p.last_seen }},
-            cách đây {{ p.age_minutes }} phút.
-          {% endif %}
+          Hiện tại tôi chưa nhận diện được ai đang ở nhà.
 
         {% else %}
 
-          {% set ns = namespace(text='Hiện tại có ' ~
-            (valid_people | length) ~ ' người được IRIS nhận diện: ') %}
+          Hiện tại có {{ valid_people | length }} người đang ở nhà.
 
           {% for p in valid_people %}
 
-            {% if not loop.first %}
-              {% set ns.text = ns.text ~ '; ' %}
-            {% endif %}
-
-            {% if p.age_minutes == 0 %}
-
-              {% set ns.text = ns.text ~
-                p.name ~ ' ở ' ~ p.camera ~
-                ', nhận diện lúc ' ~ p.last_seen ~
-                ', vừa mới nhận diện' %}
-
-            {% elif p.age_minutes == 1 %}
-
-              {% set ns.text = ns.text ~
-                p.name ~ ' ở ' ~ p.camera ~
-                ', nhận diện lúc ' ~ p.last_seen ~
-                ', cách đây 1 phút' %}
-
-            {% else %}
-
-              {% set ns.text = ns.text ~
-                p.name ~ ' ở ' ~ p.camera ~
-                ', nhận diện lúc ' ~ p.last_seen ~
-                ', cách đây ' ~ p.age_minutes ~ ' phút' %}
-
-            {% endif %}
+            {{ p.name }}
+            đang ở khu vực {{ p.camera }},
+            nhận diện lúc {{ p.last_seen }},
+            cách đây {{ p.age_minutes }} phút.
 
           {% endfor %}
 
-          {{ ns.text }}.
-
         {% endif %}
 
-  # ============================================================
-  # 4. TRẢ VỀ CHO GEMINI
-  # ============================================================
-
-  - variables:
+  - alias: "📤 Trả kết quả cho Gemini"
+    variables:
       response:
         tool: iris_people_at_home
         success: true
-        answer: "{{ answer }}"
-        people: "{{ valid_people }}"
+        answer: "{{ answer | trim }}"
         count: "{{ valid_people | length }}"
+        people: "{{ valid_people }}"
         timestamp: "{{ now().isoformat() }}"
 
-  - stop: IRIS People At Home completed
+  - stop: "IRIS People At Home completed"
     response_variable: response
