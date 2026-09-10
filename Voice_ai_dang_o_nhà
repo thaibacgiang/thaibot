@@ -53,7 +53,7 @@ condition: []
 action:
   - variables:
       people: >-
-        {{ state_attr(iris_sensor, 'people') | default([], true) }}
+        {{ state_attr(sensor.iris_people_at_home, 'people') | default([], true) }}
 
   - set_conversation_response: >-
       {% set ns = namespace(people=[]) %}
