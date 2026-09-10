@@ -1,17 +1,28 @@
 blueprint:
-  name: Voice - AI Đang Ở Nhà
+  name: Voice - AI Đang Ở Nhà và cam chuyển động
   author: Thaidv1
   description: >
-    🏠 Trả lời câu hỏi "ai đang ở nhà" bằng cách kết hợp
-    IRIS nhận diện khuôn mặt và sensor chuyển động camera.
+    🏠 TOOL CHỈ DÙNG CHO CÂU HỎI "AI ĐANG Ở NHÀ".
 
-    Dùng tool này cho:
-    - ai đang ở nhà
-    - nhà có ai
-    - những ai đang ở nhà
-    - ai đang có mặt
+    Kết hợp IRIS Face Recognition và sensor chuyển động camera.
 
-    Không dùng tool này để phân tích hình ảnh camera.
+    IRIS nhận diện được người:
+    → Trả tên + camera + thời gian nhận diện.
+
+    IRIS báo Unknown Visitor:
+    → Có người nhưng chưa xác định được danh tính.
+
+    Camera có motion nhưng IRIS chưa nhận diện được:
+    → Có thể có người chưa xác định.
+
+    Không phân tích hình ảnh camera.
+
+    Dùng cho các câu hỏi:
+    ai đang ở nhà, nhà có ai, ai đang có mặt,
+    những ai đang ở nhà, hiện tại ai ở nhà.
+
+    KHÔNG dùng cho câu hỏi camera thấy gì hoặc
+    phân tích hình ảnh camera.
 
   domain: script
 
@@ -19,85 +30,280 @@ blueprint:
     min_version: 2025.8.0
 
   input:
-    iris_sensor:
-      name: IRIS People At Home
-      description: Sensor chứa danh sách người IRIS đã nhận diện.
-      default: sensor.iris_people_at_home
-      selector:
-        entity:
-          filter:
-            - domain: sensor
 
-    motion_cameras:
-      name: Sensor cử động camera
-      description: Các sensor phát hiện chuyển động của camera.
-      selector:
-        entity:
-          multiple: true
-          filter:
-            - domain: binary_sensor
+    iris_settings:
+      name: IRIS
+      icon: mdi:face-recognition
+      input:
+
+        iris_sensor:
+          name: IRIS People At Home
+          description: >
+            Sensor chứa danh sách người IRIS nhận diện.
+          default: sensor.iris_people_at_home
+          selector:
+            entity:
+              filter:
+                - domain: sensor
+
+    camera_settings:
+      name: Camera Motion
+      icon: mdi:cctv
+      input:
+
+        motion_cameras:
+          name: Sensor cử động camera
+          description: >
+            Các binary_sensor phát hiện chuyển động của camera.
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: binary_sensor
+
 
 fields:
+
   instructions:
     name: User Question
     description: >
       Câu hỏi về người đang ở nhà.
-      Ví dụ: ai đang ở nhà, nhà có ai, ai đang có mặt.
+      Ví dụ: ai đang ở nhà, nhà có ai,
+      những ai đang có mặt.
     required: true
     selector:
       text:
         multiline: true
 
+
+mode: parallel
+max: 10
+max_exceeded: silent
+
+
 sequence:
 
-  - variables:
+  # =========================================================
+  # 1. LẤY DỮ LIỆU IRIS
+  # =========================================================
+
+  - alias: "🏠 Lấy dữ liệu IRIS"
+    variables:
+
       iris_entity: !input iris_sensor
+
       motion_entities: !input motion_cameras
+
       people: >
         {{ state_attr(iris_entity, 'people') | default([], true) }}
 
-  - variables:
+
+  # =========================================================
+  # 2. NGƯỜI ĐÃ ĐƯỢC IRIS NHẬN DIỆN
+  # =========================================================
+
+  - alias: "👤 Người đã nhận diện"
+    variables:
+
       recognized: >
         {% set ns = namespace(result=[]) %}
 
         {% for p in people %}
-          {% set name = p.name | default('') | string | trim %}
-          {% set camera = p.camera | default('') | string | trim %}
-          {% set last_seen = p.last_seen | default('') | string | trim %}
-          {% set timestamp = p.last_seen_timestamp | default('') | string | trim %}
 
-          {% if name and camera and timestamp %}
-            {% set age = (as_timestamp(now()) - as_timestamp(timestamp)) / 60 %}
+          {% set name =
+            p.name | default('') | string | trim
+          %}
 
-            {% if age >= 0 and age <= 15 %}
-              {% set ns.result = ns.result + [{
-                'name': name,
-                'camera': camera,
-                'last_seen': last_seen,
-                'age': age | int
-              }] %}
+          {% set camera =
+            p.camera | default('') | string | trim
+          %}
+
+          {% set last_seen =
+            p.last_seen | default('') | string | trim
+          %}
+
+          {% if
+            name
+            and camera
+            and name | lower not in [
+              'unknown visitor',
+              'no face detected',
+              'unknown',
+              'unknown person'
+            ]
+          %}
+
+            {% set item = {
+              'name': name,
+              'camera': camera,
+              'last_seen': last_seen
+            } %}
+
+            {% if item not in ns.result %}
+              {% set ns.result = ns.result + [item] %}
             {% endif %}
+
           {% endif %}
+
         {% endfor %}
 
         {{ ns.result }}
 
-  - variables:
-      motion: >
+
+  # =========================================================
+  # 3. UNKNOWN VISITOR TỪ IRIS
+  # =========================================================
+
+  - alias: "❓ Người chưa xác định từ IRIS"
+    variables:
+
+      unknown_iris: >
+        {% set ns = namespace(result=[]) %}
+
+        {% for p in people %}
+
+          {% set name =
+            p.name | default('') | string | trim | lower
+          %}
+
+          {% set camera =
+            p.camera | default('') | string | trim
+          %}
+
+          {% set last_seen =
+            p.last_seen | default('') | string | trim
+          %}
+
+          {% if
+            name == 'unknown visitor'
+            and camera
+          %}
+
+            {% set item = {
+              'camera': camera,
+              'last_seen': last_seen
+            } %}
+
+            {% if item not in ns.result %}
+              {% set ns.result = ns.result + [item] %}
+            {% endif %}
+
+          {% endif %}
+
+        {% endfor %}
+
+        {{ ns.result }}
+
+
+  # =========================================================
+  # 4. CAMERA ĐANG CÓ MOTION
+  # =========================================================
+
+  - alias: "📹 Camera đang chuyển động"
+    variables:
+
+      active_motion: >
         {% set ns = namespace(result=[]) %}
 
         {% for entity in motion_entities %}
+
           {% if is_state(entity, 'on') %}
-            {% set name = state_attr(entity, 'friendly_name') | default(entity) %}
-            {% set ns.result = ns.result + [name] %}
+
+            {% set camera =
+              state_attr(entity, 'friendly_name')
+              | default(entity)
+              | string
+            %}
+
+            {% set ns.result =
+              ns.result + [camera]
+            %}
+
           {% endif %}
+
         {% endfor %}
 
         {{ ns.result }}
 
-  - variables:
+
+  # =========================================================
+  # 5. TẠO DANH SÁCH CAMERA CÓ THỂ CÓ NGƯỜI CHƯA XÁC ĐỊNH
+  # =========================================================
+
+  - alias: "❓ Phát hiện người chưa xác định"
+    variables:
+
+      possible_unknown: >
+        {% set ns = namespace(result=[]) %}
+
+        {% for entity in motion_entities %}
+
+          {% if is_state(entity, 'on') %}
+
+            {% set motion_camera =
+              state_attr(entity, 'friendly_name')
+              | default(entity)
+              | string
+            %}
+
+            {% set has_recognized = namespace(value=false) %}
+
+            {% for p in recognized %}
+
+              {% if
+                p.camera | lower
+                == motion_camera | lower
+              %}
+                {% set has_recognized.value = true %}
+              {% endif %}
+
+            {% endfor %}
+
+            {% set has_unknown = namespace(value=false) %}
+
+            {% for p in unknown_iris %}
+
+              {% if
+                p.camera | lower
+                == motion_camera | lower
+              %}
+                {% set has_unknown.value = true %}
+              {% endif %}
+
+            {% endfor %}
+
+            {% if
+              not has_recognized.value
+              and not has_unknown.value
+            %}
+
+              {% set ns.result =
+                ns.result + [motion_camera]
+              %}
+
+            {% endif %}
+
+          {% endif %}
+
+        {% endfor %}
+
+        {{ ns.result }}
+
+
+  # =========================================================
+  # 6. TẠO CÂU TRẢ LỜI
+  # =========================================================
+
+  - alias: "💬 Tạo câu trả lời"
+    variables:
+
       answer: >
-        {% if recognized | length == 0 and motion | length == 0 %}
+
+        {% if
+          recognized | length == 0
+          and unknown_iris | length == 0
+          and possible_unknown | length == 0
+        %}
 
           Hiện tại không phát hiện có người ở nhà.
 
@@ -108,36 +314,59 @@ sequence:
             Hiện có {{ recognized | length }} người đã được nhận diện.
 
             {% for p in recognized %}
-              {{ p.name }} đang ở {{ p.camera }}, nhận diện lúc {{ p.last_seen }}.
+
+              {{ p.name }}
+              đang ở {{ p.camera }},
+              nhận diện lúc {{ p.last_seen }}.
+
             {% endfor %}
 
           {% endif %}
 
-          {% if motion | length > 0 %}
 
-            {% if recognized | length > 0 %}
-              Ngoài ra,
-            {% endif %}
+          {% if unknown_iris | length > 0 %}
 
-            {% for cam in motion %}
-              {{ cam }} đang phát hiện chuyển động, có thể có người chưa được nhận diện.
+            {% for p in unknown_iris %}
+
+              Camera {{ p.camera }}
+              phát hiện một người chưa xác định,
+              lúc {{ p.last_seen }}.
+
+            {% endfor %}
+
+          {% endif %}
+
+
+          {% if possible_unknown | length > 0 %}
+
+            {% for camera in possible_unknown %}
+
+              Camera {{ camera }}
+              đang phát hiện chuyển động,
+              có thể có người chưa được nhận diện.
+
             {% endfor %}
 
           {% endif %}
 
         {% endif %}
 
-  - variables:
+
+  # =========================================================
+  # 7. TRẢ KẾT QUẢ CHO GEMINI ASSIST
+  # =========================================================
+
+  - alias: "🤖 Trả kết quả cho Gemini"
+    variables:
+
       response:
         tool: iris_people_at_home
         success: true
         answer: "{{ answer | trim }}"
         recognized_people: "{{ recognized }}"
-        motion_cameras: "{{ motion }}"
+        unknown_people: "{{ unknown_iris }}"
+        motion_cameras: "{{ active_motion }}"
+        possible_unknown: "{{ possible_unknown }}"
 
   - stop: "IRIS People At Home completed"
     response_variable: response
-
-mode: parallel
-max: 10
-max_exceeded: silent
