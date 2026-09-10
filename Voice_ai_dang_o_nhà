@@ -1,109 +1,58 @@
 blueprint:
-  name: Voice - Ai đang ở nhà
+  name: Voice - AI Đang Ở Nhà
+  author: Thaidv1
   description: >
-    Hỏi bằng Voice hoặc Text trong Home Assistant Assist về những người
-    được IRIS nhận diện trong 15 phút gần nhất. Trả về tên, vị trí camera,
-    thời gian nhận diện và số phút đã trôi qua.
+    Hỏi bằng Voice hoặc Text trong Home Assistant Assist để biết
+    những người IRIS đã nhận diện gần đây.
+
   domain: automation
+  homeassistant:
+    min_version: 2026.1.0
 
-  input:
-    iris_sensor:
-      name: IRIS People At Home
-      description: Sensor chứa danh sách người IRIS nhận diện.
-      selector:
-        entity:
-          domain: sensor
-
-    time_window:
-      name: Thời gian nhận diện
-      description: Chỉ trả lời những người được IRIS nhận diện trong khoảng thời gian này.
-      default: 15
-      selector:
-        number:
-          min: 1
-          max: 120
-          step: 1
-          unit_of_measurement: phút
-          mode: box
+  input: {}
 
 trigger:
   - trigger: conversation
     command:
-      - "Ai đang ở nhà"
-      - "Ai ở nhà"
-      - "Có ai ở nhà không"
-      - "Nhà có ai"
-      - "Nhà có những ai"
-      - "Những ai đang ở nhà"
-      - "Trong nhà có ai"
-      - "Trong nhà đang có ai"
-      - "Có những ai ở nhà"
-      - "Hiện tại ai đang ở nhà"
-      - "Hiện tại nhà có ai"
-      - "Ai đang có mặt ở nhà"
-      - "Những người nào đang ở nhà"
-      - "Có người nào ở nhà không"
-      - "Cho tôi biết ai đang ở nhà"
-      - "Kiểm tra xem ai đang ở nhà"
-      - "Kiểm tra trong nhà có ai"
-      - "Xem ai đang ở nhà"
-
-condition: []
+      - "ai đang ở nhà"
+      - "ai ở nhà"
+      - "có ai ở nhà không"
+      - "nhà có ai"
+      - "nhà đang có ai"
+      - "những ai đang ở nhà"
+      - "trong nhà có ai"
+      - "trong nhà đang có ai"
+      - "hiện tại ai đang ở nhà"
+      - "hiện tại nhà có ai"
+      - "ai đang có mặt ở nhà"
 
 action:
   - variables:
-      people: >-
-        {{ state_attr(sensor.iris_people_at_home, 'people') | default([], true) }}
+      people: >
+        {{ state_attr('sensor.iris_people_at_home', 'people')
+           | default([], true) }}
 
-  - set_conversation_response: >-
-      {% set ns = namespace(people=[]) %}
-
-      {% for p in people %}
-        {% set name = p.name | default('') | string | trim %}
-        {% set camera = p.camera | default('') | string | trim %}
-        {% set last_seen = p.last_seen | default('') | string | trim %}
-
-        {% if name not in ['', 'unknown', 'Unknown', 'No face detected', 'no face detected', 'None'] %}
-          {% if camera != '' and last_seen != '' %}
-            {% set ns.people = ns.people + [p] %}
-          {% endif %}
-        {% endif %}
-      {% endfor %}
-
-      {% if ns.people | length == 0 %}
-
-        Hiện tại không ghi nhận người quen nào được nhận diện trong {{ time_window }} phút qua.
-
-      {% elif ns.people | length == 1 %}
-
-        {% set p = ns.people[0] %}
-
-        {% if p.last_seen is defined %}
-          {% set time_text = p.last_seen %}
-        {% else %}
-          {% set time_text = 'không rõ thời gian' %}
-        {% endif %}
-
-        Hiện tại có {{ p.name }} ở {{ p.camera }}, được nhận diện lúc {{ time_text }}.
-
+  - set_conversation_response: >
+      {% if people | length == 0 %}
+        Hiện tại tôi chưa ghi nhận người nào trong nhà.
+      {% elif people | length == 1 %}
+        {% set p = people[0] %}
+        Hiện tại có {{ p.name }} ở {{ p.camera }},
+        được nhận diện lúc {{ p.last_seen }}.
       {% else %}
+        {% set ns = namespace(text='Hiện tại có ' ~ (people | length) ~ ' người: ') %}
 
-        {% set text = namespace(value='Hiện tại có ' ~ (ns.people | length) ~ ' người được nhận diện: ') %}
-
-        {% for p in ns.people %}
-
+        {% for p in people %}
           {% if not loop.first %}
-            {% set text.value = text.value ~ ' và ' %}
+            {% set ns.text = ns.text ~ ', ' %}
           {% endif %}
 
-          {% set time_text = p.last_seen | default('không rõ thời gian') %}
-
-          {% set text.value = text.value ~ p.name ~ ' ở ' ~ p.camera ~ ', được nhận diện lúc ' ~ time_text %}
-
+          {% set ns.text = ns.text ~ p.name ~
+            ' ở ' ~ p.camera ~
+            ', nhận diện lúc ' ~ p.last_seen %}
         {% endfor %}
 
-        {{ text.value }}.
-
+        {{ ns.text }}.
       {% endif %}
 
 mode: single
