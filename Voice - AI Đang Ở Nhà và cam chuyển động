@@ -7,22 +7,17 @@ blueprint:
     Kết hợp IRIS Face Recognition và sensor chuyển động camera.
 
     IRIS nhận diện được người:
-    → Trả tên + camera + thời gian nhận diện.
+    → Trả tên + camera + thời gian.
 
-    IRIS báo Unknown Visitor:
+    Unknown Visitor:
     → Có người nhưng chưa xác định được danh tính.
 
-    Camera có motion nhưng IRIS chưa nhận diện được:
-    → Có thể có người chưa xác định.
+    Camera đang có motion nhưng IRIS không có người hợp lệ:
+    → Có thể có người chưa được nhận diện.
+
+    Tất cả dữ liệu IRIS quá 15 phút sẽ được bỏ qua.
 
     Không phân tích hình ảnh camera.
-
-    Dùng cho các câu hỏi:
-    ai đang ở nhà, nhà có ai, ai đang có mặt,
-    những ai đang ở nhà, hiện tại ai ở nhà.
-
-    KHÔNG dùng cho câu hỏi camera thấy gì hoặc
-    phân tích hình ảnh camera.
 
   domain: script
 
@@ -61,7 +56,6 @@ blueprint:
               filter:
                 - domain: binary_sensor
 
-
 fields:
 
   instructions:
@@ -75,34 +69,33 @@ fields:
       text:
         multiline: true
 
-
 mode: parallel
 max: 10
 max_exceeded: silent
 
-
 sequence:
 
   # =========================================================
-  # 1. LẤY DỮ LIỆU IRIS
+  # 1. LẤY DỮ LIỆU
   # =========================================================
 
   - alias: "🏠 Lấy dữ liệu IRIS"
     variables:
-
       iris_entity: !input iris_sensor
-
       motion_entities: !input motion_cameras
 
       people: >
         {{ state_attr(iris_entity, 'people') | default([], true) }}
 
+      now_minutes: >
+        {{ now().hour * 60 + now().minute }}
+
 
   # =========================================================
-  # 2. NGƯỜI ĐÃ ĐƯỢC IRIS NHẬN DIỆN
+  # 2. NGƯỜI ĐÃ NHẬN DIỆN - CHỈ GIỮ TRONG 15 PHÚT
   # =========================================================
 
-  - alias: "👤 Người đã nhận diện"
+  - alias: "👤 Lọc người đã nhận diện trong 15 phút"
     variables:
 
       recognized: >
@@ -125,6 +118,7 @@ sequence:
           {% if
             name
             and camera
+            and last_seen
             and name | lower not in [
               'unknown visitor',
               'no face detected',
@@ -133,14 +127,46 @@ sequence:
             ]
           %}
 
-            {% set item = {
-              'name': name,
-              'camera': camera,
-              'last_seen': last_seen
-            } %}
+            {% set parts = last_seen
+              | replace('h', ':')
+              | split(':')
+            %}
 
-            {% if item not in ns.result %}
-              {% set ns.result = ns.result + [item] %}
+            {% if parts | length >= 2 %}
+
+              {% set seen_hour = parts[0] | int(0) %}
+              {% set seen_minute = parts[1] | int(0) %}
+
+              {% set seen_total =
+                seen_hour * 60 + seen_minute
+              %}
+
+              {% set age =
+                now_minutes - seen_total
+              %}
+
+              {# Xử lý trường hợp qua 00:00 #}
+              {% if age < 0 %}
+                {% set age = age + 1440 %}
+              {% endif %}
+
+              {% if age <= 15 %}
+
+                {% set item = {
+                  'name': name,
+                  'camera': camera,
+                  'last_seen': last_seen,
+                  'age_minutes': age
+                } %}
+
+                {% if item not in ns.result %}
+                  {% set ns.result =
+                    ns.result + [item]
+                  %}
+                {% endif %}
+
+              {% endif %}
+
             {% endif %}
 
           {% endif %}
@@ -151,10 +177,10 @@ sequence:
 
 
   # =========================================================
-  # 3. UNKNOWN VISITOR TỪ IRIS
+  # 3. UNKNOWN VISITOR - CHỈ GIỮ TRONG 15 PHÚT
   # =========================================================
 
-  - alias: "❓ Người chưa xác định từ IRIS"
+  - alias: "❓ Lọc Unknown Visitor trong 15 phút"
     variables:
 
       unknown_iris: >
@@ -177,15 +203,48 @@ sequence:
           {% if
             name == 'unknown visitor'
             and camera
+            and last_seen
           %}
 
-            {% set item = {
-              'camera': camera,
-              'last_seen': last_seen
-            } %}
+            {% set parts = last_seen
+              | replace('h', ':')
+              | split(':')
+            %}
 
-            {% if item not in ns.result %}
-              {% set ns.result = ns.result + [item] %}
+            {% if parts | length >= 2 %}
+
+              {% set seen_hour = parts[0] | int(0) %}
+              {% set seen_minute = parts[1] | int(0) %}
+
+              {% set seen_total =
+                seen_hour * 60 + seen_minute
+              %}
+
+              {% set age =
+                now_minutes - seen_total
+              %}
+
+              {# Xử lý qua 00:00 #}
+              {% if age < 0 %}
+                {% set age = age + 1440 %}
+              {% endif %}
+
+              {% if age <= 15 %}
+
+                {% set item = {
+                  'camera': camera,
+                  'last_seen': last_seen,
+                  'age_minutes': age
+                } %}
+
+                {% if item not in ns.result %}
+                  {% set ns.result =
+                    ns.result + [item]
+                  %}
+                {% endif %}
+
+              {% endif %}
+
             {% endif %}
 
           {% endif %}
@@ -196,7 +255,7 @@ sequence:
 
 
   # =========================================================
-  # 4. CAMERA ĐANG CÓ MOTION
+  # 4. CAMERA ĐANG MOTION
   # =========================================================
 
   - alias: "📹 Camera đang chuyển động"
@@ -227,10 +286,10 @@ sequence:
 
 
   # =========================================================
-  # 5. TẠO DANH SÁCH CAMERA CÓ THỂ CÓ NGƯỜI CHƯA XÁC ĐỊNH
+  # 5. CAMERA MOTION NHƯNG CHƯA CÓ IRIS NHẬN DIỆN
   # =========================================================
 
-  - alias: "❓ Phát hiện người chưa xác định"
+  - alias: "❓ Tìm camera có người chưa xác định"
     variables:
 
       possible_unknown: >
@@ -246,7 +305,9 @@ sequence:
               | string
             %}
 
-            {% set has_recognized = namespace(value=false) %}
+            {% set has_recognized =
+              namespace(value=false)
+            %}
 
             {% for p in recognized %}
 
@@ -254,12 +315,17 @@ sequence:
                 p.camera | lower
                 == motion_camera | lower
               %}
+
                 {% set has_recognized.value = true %}
+
               {% endif %}
 
             {% endfor %}
 
-            {% set has_unknown = namespace(value=false) %}
+
+            {% set has_unknown =
+              namespace(value=false)
+            %}
 
             {% for p in unknown_iris %}
 
@@ -267,10 +333,13 @@ sequence:
                 p.camera | lower
                 == motion_camera | lower
               %}
+
                 {% set has_unknown.value = true %}
+
               {% endif %}
 
             {% endfor %}
+
 
             {% if
               not has_recognized.value
@@ -309,9 +378,11 @@ sequence:
 
         {% else %}
 
+
           {% if recognized | length > 0 %}
 
-            Hiện có {{ recognized | length }} người đã được nhận diện.
+            Hiện có {{ recognized | length }}
+            người đã được nhận diện.
 
             {% for p in recognized %}
 
@@ -329,7 +400,7 @@ sequence:
             {% for p in unknown_iris %}
 
               Camera {{ p.camera }}
-              phát hiện một người chưa xác định,
+              phát hiện người chưa xác định,
               lúc {{ p.last_seen }}.
 
             {% endfor %}
@@ -349,11 +420,12 @@ sequence:
 
           {% endif %}
 
+
         {% endif %}
 
 
   # =========================================================
-  # 7. TRẢ KẾT QUẢ CHO GEMINI ASSIST
+  # 7. TRẢ KẾT QUẢ CHO GEMINI
   # =========================================================
 
   - alias: "🤖 Trả kết quả cho Gemini"
