@@ -15,7 +15,7 @@ blueprint:
     Camera đang có motion nhưng IRIS không có người hợp lệ:
     → Có thể có người chưa được nhận diện.
 
-    Tất cả dữ liệu IRIS quá 15 phút sẽ được bỏ qua.
+    Dữ liệu IRIS quá 15 phút sẽ bị bỏ qua.
 
     Không phân tích hình ảnh camera.
 
@@ -76,11 +76,12 @@ max_exceeded: silent
 sequence:
 
   # =========================================================
-  # 1. LẤY DỮ LIỆU
+  # 1. LẤY DỮ LIỆU IRIS
   # =========================================================
 
   - alias: "🏠 Lấy dữ liệu IRIS"
     variables:
+
       iris_entity: !input iris_sensor
       motion_entities: !input motion_cameras
 
@@ -92,10 +93,10 @@ sequence:
 
 
   # =========================================================
-  # 2. NGƯỜI ĐÃ NHẬN DIỆN - CHỈ GIỮ TRONG 15 PHÚT
+  # 2. NGƯỜI ĐÃ NHẬN DIỆN - TRONG 15 PHÚT
   # =========================================================
 
-  - alias: "👤 Lọc người đã nhận diện trong 15 phút"
+  - alias: "👤 Lọc người đã nhận diện"
     variables:
 
       recognized: >
@@ -103,17 +104,9 @@ sequence:
 
         {% for p in people %}
 
-          {% set name =
-            p.name | default('') | string | trim
-          %}
-
-          {% set camera =
-            p.camera | default('') | string | trim
-          %}
-
-          {% set last_seen =
-            p.last_seen | default('') | string | trim
-          %}
+          {% set name = p.name | default('') | string | trim %}
+          {% set camera = p.camera | default('') | string | trim %}
+          {% set last_seen = p.last_seen | default('') | string | trim %}
 
           {% if
             name
@@ -127,10 +120,7 @@ sequence:
             ]
           %}
 
-            {% set parts = last_seen
-              | replace('h', ':')
-              | split(':')
-            %}
+            {% set parts = last_seen.split('h') %}
 
             {% if parts | length >= 2 %}
 
@@ -145,7 +135,7 @@ sequence:
                 now_minutes - seen_total
               %}
 
-              {# Xử lý trường hợp qua 00:00 #}
+              {# Qua 00:00 #}
               {% if age < 0 %}
                 {% set age = age + 1440 %}
               {% endif %}
@@ -177,10 +167,10 @@ sequence:
 
 
   # =========================================================
-  # 3. UNKNOWN VISITOR - CHỈ GIỮ TRONG 15 PHÚT
+  # 3. UNKNOWN VISITOR - TRONG 15 PHÚT
   # =========================================================
 
-  - alias: "❓ Lọc Unknown Visitor trong 15 phút"
+  - alias: "❓ Lọc người chưa xác định"
     variables:
 
       unknown_iris: >
@@ -206,10 +196,7 @@ sequence:
             and last_seen
           %}
 
-            {% set parts = last_seen
-              | replace('h', ':')
-              | split(':')
-            %}
+            {% set parts = last_seen.split('h') %}
 
             {% if parts | length >= 2 %}
 
@@ -224,7 +211,7 @@ sequence:
                 now_minutes - seen_total
               %}
 
-              {# Xử lý qua 00:00 #}
+              {# Qua 00:00 #}
               {% if age < 0 %}
                 {% set age = age + 1440 %}
               {% endif %}
@@ -255,7 +242,7 @@ sequence:
 
 
   # =========================================================
-  # 4. CAMERA ĐANG MOTION
+  # 4. CAMERA ĐANG CÓ CHUYỂN ĐỘNG
   # =========================================================
 
   - alias: "📹 Camera đang chuyển động"
@@ -286,10 +273,10 @@ sequence:
 
 
   # =========================================================
-  # 5. CAMERA MOTION NHƯNG CHƯA CÓ IRIS NHẬN DIỆN
+  # 5. MOTION NHƯNG KHÔNG CÓ IRIS
   # =========================================================
 
-  - alias: "❓ Tìm camera có người chưa xác định"
+  - alias: "❓ Tìm người chưa nhận diện qua Motion"
     variables:
 
       possible_unknown: >
@@ -378,7 +365,6 @@ sequence:
 
         {% else %}
 
-
           {% if recognized | length > 0 %}
 
             Hiện có {{ recognized | length }}
@@ -419,7 +405,6 @@ sequence:
             {% endfor %}
 
           {% endif %}
-
 
         {% endif %}
 
